@@ -36,7 +36,7 @@ async fn backup() -> actix_web::Result<HttpResponse> {
         Err(ErrorInternalServerError("unable to capture the output"))
     }
 }
-_
+
 #[post("/poweroff", wrap = "HttpAuthentication::bearer(bearer_validator)")]
 async fn poweroff() -> actix_web::Result<HttpResponse> {
     let mut cmd = Command::new("systemctl");
