@@ -1,5 +1,7 @@
-use anyhow::anyhow;
 use std::env;
+
+use actix_web_httpauth::extractors::bearer::BearerAuth;
+use anyhow::anyhow;
 
 pub mod rest;
 
@@ -17,8 +19,8 @@ impl AccessToken {
     }
 }
 
-impl PartialEq<&str> for AccessToken {
-    fn eq(&self, str: &&str) -> bool {
-        self.0 == *str
+impl PartialEq<BearerAuth> for AccessToken {
+    fn eq(&self, auth: &BearerAuth) -> bool {
+        self.0 == auth.token()
     }
 }

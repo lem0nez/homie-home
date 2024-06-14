@@ -27,7 +27,7 @@ pub async fn bearer_validator(
         .app_data::<AccessToken>()
         .expect("Access token is not provided");
 
-    if *access_token == auth.token() {
+    if *access_token == auth {
         Ok(request)
     } else {
         let config = request
