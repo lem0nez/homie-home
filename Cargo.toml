@@ -1,7 +1,10 @@
 [package]
 name = "rpi-server"
+description = "Rasbperry Pi web server"
 version = "1.0.0"
 edition = "2021"
+license = "MIT"
+license-file = "LICENSE"
 
 [profile.release]
 # Reduce parallel code generation units to increase optimization.
