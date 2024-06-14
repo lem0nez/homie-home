@@ -6,13 +6,14 @@ edition = "2021"
 [profile.release]
 # Reduce parallel code generation units to increase optimization.
 codegen-units = 1
-# Link Time Optimization.
+# Link time optimization.
 lto = true
 strip = true
 
 [dependencies]
 actix-web = "4.7.0"
 actix-web-httpauth = "0.8.1"
+anyhow = "1.0.86"
 async-stream = "0.3.5"
 env_logger = "0.11.3"
 futures-core = "0.3.30"

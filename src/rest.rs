@@ -1,62 +1,59 @@
 use std::{
     io::Read,
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
 };
 
-use actix_web::{
-    body::BodyStream, dev::ServiceRequest, error::ErrorInternalServerError, web::ServiceConfig,
-    HttpResponse,
+use actix_web::{dev::ServiceRequest, error::ErrorInternalServerError, web::ServiceConfig};
+use actix_web_httpauth::extractors::{
+    bearer::{self, BearerAuth},
+    AuthenticationError,
 };
-use actix_web::{get, post};
-use actix_web_httpauth::{extractors::bearer::BearerAuth, middleware::HttpAuthentication};
-use log::error;
 
-use crate::stdout_reader::StdoutReader;
-
-const BACKUP_COMMAND: &str = "rpi-backup";
-const BACKUP_MIME_TYPE: &str = "application/x-tar";
+use crate::{endpoint, AccessToken};
 
 pub fn configure_service(config: &mut ServiceConfig) {
-    config.service(live).service(backup);
+    config
+        .service(endpoint::live)
+        .service(endpoint::validate)
+        .service(endpoint::backup)
+        .service(endpoint::poweroff);
 }
 
-#[get("/live")]
-async fn live() -> HttpResponse {
-    HttpResponse::Ok().finish()
+pub async fn bearer_validator(
+    request: ServiceRequest,
+    auth: BearerAuth,
+) -> Result<ServiceRequest, (actix_web::Error, ServiceRequest)> {
+    let access_token = request
+        .app_data::<AccessToken>()
+        .expect("Access token is not provided");
+
+    if *access_token == auth.token() {
+        Ok(request)
+    } else {
+        let config = request
+            .app_data::<bearer::Config>()
+            .cloned()
+            .unwrap_or_default();
+        Err((AuthenticationError::from(config).into(), request))
+    }
 }
 
-#[post("/backup", wrap = "HttpAuthentication::bearer(auth_validator)")]
-async fn backup() -> actix_web::Result<HttpResponse> {
-    let mut cmd = Command::new(BACKUP_COMMAND)
+/// If `stderr` is present, it will be taken:
+/// on non-empty value an internal server error will be returned.
+pub fn spawn_child(mut cmd: Command) -> actix_web::Result<Child> {
+    let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
-        .spawn()
-        .map_err(|err| {
-            error!("Failed to spwan the backup process: {err}");
-            err
-        })?;
+        .spawn()?;
 
-    if let Some(stdout) = cmd.stdout.take() {
-        let body = BodyStream::new(StdoutReader::new(stdout).stream());
-        return Ok(HttpResponse::Ok().content_type(BACKUP_MIME_TYPE).body(body));
-    }
-
-    let mut err = String::new();
-    if let Some(mut stderr) = cmd.stderr.take() {
+    if let Some(mut stderr) = child.stderr.take() {
+        let mut err = String::new();
         stderr.read_to_string(&mut err).ok();
-    }
-    if err.is_empty() {
-        err = "unable to capture the output".to_string();
+        if !err.is_empty() {
+            return Err(ErrorInternalServerError(err));
+        }
     }
 
-    error!("Failed to make the backup: {err}");
-    Err(ErrorInternalServerError(err))
-}
-
-async fn auth_validator(
-    req: ServiceRequest,
-    auth: BearerAuth,
-) -> Result<ServiceRequest, (actix_web::Error, ServiceRequest)> {
-    todo!()
+    Ok(child)
 }
