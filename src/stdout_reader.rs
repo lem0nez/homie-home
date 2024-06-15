@@ -1,11 +1,9 @@
-use std::{
-    io::{self, Read},
-    process::ChildStdout,
-};
+use std::io;
 
 use actix_web::web;
 use async_stream::stream;
 use futures_core::Stream;
+use tokio::{io::AsyncReadExt, process::ChildStdout};
 
 type BytesResult = io::Result<web::Bytes>;
 
@@ -13,39 +11,32 @@ const BUFFER_SIZE: usize = 8 * 1024;
 
 pub struct StdoutReader {
     child_stdout: ChildStdout,
-    buffer: [u8; BUFFER_SIZE],
+    buf: [u8; BUFFER_SIZE],
 }
 
 impl StdoutReader {
     pub fn new(child_stdout: ChildStdout) -> Self {
         Self {
             child_stdout,
-            buffer: [0; BUFFER_SIZE],
+            buf: [0; BUFFER_SIZE],
         }
     }
 
-    pub fn stream(self) -> impl Stream<Item = BytesResult> {
+    pub async fn stream(mut self) -> impl Stream<Item = BytesResult> {
         stream! {
-            for bytes in self {
-                yield bytes;
-            }
-        }
-    }
-}
-
-impl Iterator for StdoutReader {
-    type Item = BytesResult;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.child_stdout.read(&mut self.buffer) {
-            Ok(len) => {
-                if len == 0 {
-                    None
-                } else {
-                    Some(Ok(web::Bytes::copy_from_slice(&self.buffer[..len])))
+            loop {
+                match self.child_stdout.read(&mut self.buf).await {
+                    Ok(len) => {
+                        if len == 0 {
+                            break
+                        } else {
+                            let bytes = web::Bytes::copy_from_slice(&self.buf[..len]);
+                            yield Ok(bytes)
+                        }
+                    },
+                    Err(e) => yield Err(e),
                 }
             }
-            Err(e) => Some(Err(e)),
         }
     }
 }

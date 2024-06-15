@@ -20,4 +20,6 @@ async-stream = "0.3.5"
 env_logger = "0.11.3"
 futures-core = "0.3.30"
 log = "0.4.21"
+# Using tokio process instead of std to avoid zombie processes
+# when calling commands from Actix Web endpoints.
 tokio = { version = "1.38.0", features = ["process"] }

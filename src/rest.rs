@@ -1,9 +1,4 @@
-use std::{
-    io::Read,
-    process::{Child, Command, Stdio},
-};
-
-use actix_web::{dev::ServiceRequest, error::ErrorInternalServerError, web::ServiceConfig};
+use actix_web::{dev::ServiceRequest, web::ServiceConfig};
 use actix_web_httpauth::extractors::{
     bearer::{self, BearerAuth},
     AuthenticationError,
@@ -36,24 +31,4 @@ pub async fn bearer_validator(
             .unwrap_or_default();
         Err((AuthenticationError::from(config).into(), request))
     }
-}
-
-/// If `stderr` is present, it will be taken:
-/// on non-empty value an internal server error will be returned.
-pub fn spawn_child(mut cmd: Command) -> actix_web::Result<Child> {
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .spawn()?;
-
-    if let Some(mut stderr) = child.stderr.take() {
-        let mut err = String::new();
-        stderr.read_to_string(&mut err).ok();
-        if !err.is_empty() {
-            return Err(ErrorInternalServerError(err));
-        }
-    }
-
-    Ok(child)
 }

@@ -1,12 +1,11 @@
+use std::process::Stdio;
+
 use actix_web::{body::BodyStream, error::ErrorInternalServerError, get, post, HttpResponse};
 use actix_web_httpauth::middleware::HttpAuthentication;
 use log::error;
 use tokio::process::Command;
 
-use crate::{
-    rest::{bearer_validator, spawn_child},
-    stdout_reader::StdoutReader,
-};
+use crate::{rest::bearer_validator, stdout_reader::StdoutReader};
 
 const BACKUP_MIME_TYPE: &str = "application/x-tar";
 
@@ -22,13 +21,17 @@ async fn validate() -> HttpResponse {
 
 #[post("/backup", wrap = "HttpAuthentication::bearer(bearer_validator)")]
 async fn backup() -> actix_web::Result<HttpResponse> {
-    let mut child = spawn_child(Command::new("rpi-backup")).map_err(|err| {
-        error!("Failed to make the backup: {err}");
-        err
-    })?;
+    let mut child = Command::new("rpi-backup")
+        .stdout(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()
+        .map_err(|err| {
+            error!("Failed to initiate the back up process: {err}");
+            err
+        })?;
 
     if let Some(stdout) = child.stdout.take() {
-        let body = BodyStream::new(StdoutReader::new(stdout).stream());
+        let body = BodyStream::new(StdoutReader::new(stdout).stream().await);
         return Ok(HttpResponse::Ok().content_type(BACKUP_MIME_TYPE).body(body));
     } else {
         error!("Failed to capture the backup output");
@@ -39,7 +42,7 @@ async fn backup() -> actix_web::Result<HttpResponse> {
 #[post("/poweroff", wrap = "HttpAuthentication::bearer(bearer_validator)")]
 async fn poweroff() -> actix_web::Result<HttpResponse> {
     let result = Command::new("systemctl")
-        .arg("reboot")
+        .arg("poweroff")
         .output()
         .await
         .map_err(|err| {
