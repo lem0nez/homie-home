@@ -1,8 +1,7 @@
-use std::process::Command;
-
 use actix_web::{body::BodyStream, error::ErrorInternalServerError, get, post, HttpResponse};
 use actix_web_httpauth::middleware::HttpAuthentication;
 use log::error;
+use tokio::process::Command;
 
 use crate::{
     rest::{bearer_validator, spawn_child},
@@ -39,13 +38,24 @@ async fn backup() -> actix_web::Result<HttpResponse> {
 
 #[post("/poweroff", wrap = "HttpAuthentication::bearer(bearer_validator)")]
 async fn poweroff() -> actix_web::Result<HttpResponse> {
-    let mut cmd = Command::new("systemctl");
-    cmd.arg("poweroff");
-
-    spawn_child(cmd)
+    let result = Command::new("systemctl")
+        .arg("reboot")
+        .output()
+        .await
         .map_err(|err| {
-            error!("Failed to power off: {err}");
+            error!("Failed to initiate the power off: {err}");
             err
-        })
-        .map(|_| HttpResponse::Ok().finish())
+        })?;
+
+    if result.status.success() {
+        Ok(HttpResponse::Ok().finish())
+    } else {
+        let output = String::from_utf8_lossy(if result.stderr.is_empty() {
+            &result.stdout
+        } else {
+            &result.stderr
+        });
+        error!("Failed to power off: {output}");
+        Err(ErrorInternalServerError(output.to_string()))
+    }
 }

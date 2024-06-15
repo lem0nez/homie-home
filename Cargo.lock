@@ -1132,6 +1132,7 @@ dependencies = [
  "env_logger",
  "futures-core",
  "log",
+ "tokio",
 ]
 
 [[package]]
