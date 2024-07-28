@@ -7,6 +7,9 @@ use rpi_server::{rest, AccessToken};
 const SERVER_ADDRESS: (&str, u16) = ("0.0.0.0", 80);
 const DEFAULT_LOG_FILTER: &str = "INFO";
 
+const SITE_SERVE_PATH: &str = "/ui";
+const SITE_HOST_PATH: &str = "/usr/local/share/rpi-ui";
+
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::builder()
@@ -20,6 +23,12 @@ async fn main() -> anyhow::Result<()> {
             .wrap(actix_web::middleware::Logger::default())
             .app_data(access_token.clone())
             .configure(rest::configure_service)
+            .service(
+                actix_files::Files::new(SITE_SERVE_PATH, SITE_HOST_PATH)
+                    // Be able to access the sub-directories.
+                    .show_files_listing()
+                    .index_file("index.html"),
+            )
     })
     .bind(SERVER_ADDRESS)
     .map(|server| {
