@@ -7,7 +7,7 @@ use rpi_server::{rest, AccessToken};
 const SERVER_ADDRESS: (&str, u16) = ("0.0.0.0", 80);
 const DEFAULT_LOG_FILTER: &str = "INFO";
 
-const SITE_SERVE_PATH: &str = "/ui";
+const SITE_SERVE_PATH: &str = "/";
 const SITE_HOST_PATH: &str = "/usr/local/share/rpi-ui";
 
 #[actix_web::main]

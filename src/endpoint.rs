@@ -9,17 +9,17 @@ use crate::{rest::bearer_validator, stdout_reader::StdoutReader};
 
 const BACKUP_MIME_TYPE: &str = "application/x-tar";
 
-#[get("/live")]
+#[get("/api/live")]
 async fn live() -> HttpResponse {
     HttpResponse::Ok().finish()
 }
 
-#[post("/validate", wrap = "HttpAuthentication::bearer(bearer_validator)")]
+#[post("/api/validate", wrap = "HttpAuthentication::bearer(bearer_validator)")]
 async fn validate() -> HttpResponse {
     HttpResponse::Ok().finish()
 }
 
-#[post("/backup", wrap = "HttpAuthentication::bearer(bearer_validator)")]
+#[post("/api/backup", wrap = "HttpAuthentication::bearer(bearer_validator)")]
 async fn backup() -> actix_web::Result<HttpResponse> {
     let mut child = Command::new("rpi-backup")
         .stdout(Stdio::piped())
@@ -39,7 +39,7 @@ async fn backup() -> actix_web::Result<HttpResponse> {
     }
 }
 
-#[post("/poweroff", wrap = "HttpAuthentication::bearer(bearer_validator)")]
+#[post("/api/poweroff", wrap = "HttpAuthentication::bearer(bearer_validator)")]
 async fn poweroff() -> actix_web::Result<HttpResponse> {
     let result = Command::new("systemctl")
         .arg("poweroff")
