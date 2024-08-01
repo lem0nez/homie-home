@@ -1,2 +1,5 @@
+# When using this target, please manually set the environment variable
+# PKG_CONFIG_SYSROOT_DIR with value "/usr/aarch64-linux-gnu".
+# It's required because we can't define variables per target here.
 [target.aarch64-unknown-linux-gnu]
 linker = "aarch64-linux-gnu-gcc"

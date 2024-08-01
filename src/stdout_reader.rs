@@ -2,7 +2,7 @@ use std::io;
 
 use actix_web::web;
 use async_stream::stream;
-use futures_core::Stream;
+use futures::Stream;
 use tokio::{io::AsyncReadExt, process::ChildStdout};
 
 type BytesResult = io::Result<web::Bytes>;
