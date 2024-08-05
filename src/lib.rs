@@ -3,6 +3,7 @@ use std::env;
 use actix_web_httpauth::extractors::bearer::BearerAuth;
 use anyhow::anyhow;
 
+pub mod config;
 pub mod rest;
 
 mod endpoint;
