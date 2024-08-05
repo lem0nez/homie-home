@@ -19,10 +19,10 @@ $ cargo build --target aarch64-unknown-linux-gnu
 ```
 
 ## Running
-To run the server you must set the `ACCESS_TOKEN` environment variable and optionally provide
+To run the server you must set the `ACCESS_TOKEN` environment variable. Also you must provide some
 configuration settings. It can be achieved in the two ways.
 
 1. By settings environment variables with the `RPI_` prefix.
 2. By putting values inside the `/etc/rpi-server.yaml` configuration file.
 
-Available options you can see in the [src/config.rs](src/config.rs) file.
+Required settings you can see in the [src/config.rs](src/config.rs) file.
