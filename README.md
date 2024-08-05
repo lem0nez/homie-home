@@ -24,3 +24,5 @@ configuration settings. It can be achieved in the two ways.
 
 1. By settings environment variables with the `RPI_` prefix.
 2. By putting values inside the `/etc/rpi-server.yaml` configuration file.
+
+Available options you can see in the [src/config.rs](src/config.rs) file.
