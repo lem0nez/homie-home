@@ -6,6 +6,7 @@ use anyhow::anyhow;
 pub mod config;
 pub mod rest;
 
+mod bluetooth;
 mod endpoint;
 mod stdout_reader;
 
