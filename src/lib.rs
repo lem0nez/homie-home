@@ -3,10 +3,11 @@ use std::env;
 use actix_web_httpauth::extractors::bearer::BearerAuth;
 use anyhow::anyhow;
 
+pub mod bluetooth;
 pub mod config;
 pub mod rest;
 
-mod bluetooth;
+mod device;
 mod endpoint;
 mod stdout_reader;
 

@@ -38,6 +38,8 @@ impl Default for Config {
 #[serde(default)]
 pub struct Bluetooth {
     pub discovery_seconds: u64,
+    /// If set to `None`, all available Bluetooth adapters will be used for discovering.
+    pub adapter_name: Option<String>,
     // We can't use `bluez_async::MacAddress` directly
     // because it doesn't have `Default` implementation.
     #[validate(custom = validator::bluetooth_mac)]
@@ -48,6 +50,7 @@ impl Default for Bluetooth {
     fn default() -> Self {
         Self {
             discovery_seconds: 5,
+            adapter_name: None,
             mi_temp_mac_address: String::default(),
         }
     }
@@ -81,7 +84,7 @@ mod validator {
     pub fn bluetooth_mac(val: &str) -> Result<(), Error> {
         if val.is_empty() {
             return Err(Error::Custom(
-                "bluetooth MAC address must be set".to_string(),
+                "Bluetooth MAC address must be set".to_string(),
             ));
         }
         bluez_async::MacAddress::from_str(val)

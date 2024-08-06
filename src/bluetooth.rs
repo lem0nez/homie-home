@@ -1,79 +1,76 @@
 use std::time::Duration;
 
-use bluez_async::{BluetoothError, BluetoothSession, CharacteristicId, DeviceId, MacAddress};
-use log::info;
-use uuid::Uuid;
+use anyhow::anyhow;
+use bluez_async::{AdapterInfo, BluetoothError, BluetoothSession};
+use log::{info, warn};
 
-use crate::config;
-
-const MI_TEMP_SERVICE_UUID: Uuid = Uuid::from_u128(0xebe0ccb0_7a0a_4b0c_8a1a_6ff2997da3a6);
-// This characteristic used to fetch data from a device.
-const MI_TEMP_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0xebe0ccc1_7a0a_4b0c_8a1a_6ff2997da3a6);
+use crate::{config, device::xiaomi::MiTempMonitor};
 
 pub struct Bluetooth {
-    session: BluetoothSession,
     config: config::Bluetooth,
+    session: BluetoothSession,
+    adapter: Option<AdapterInfo>,
+
+    mi_temp_monitor: Option<MiTempMonitor>,
 }
 
 impl Bluetooth {
-    pub async fn new(config: config::Bluetooth) -> Result<Self, BluetoothError> {
-        info!("Attaching to the Bluetooth daemon...");
-        BluetoothSession::new()
-            .await
-            .map(|(_, session)| Self { session, config })
+    pub async fn new(config: config::Bluetooth) -> anyhow::Result<Self> {
+        info!("Attaching to the daemon...");
+        let (_, session) = BluetoothSession::new().await?;
+
+        let adapter = if let Some(adapter_name) = config.adapter_name.as_deref() {
+            let adapter = session
+                .get_adapters()
+                .await?
+                .into_iter()
+                .find(|adapter| adapter.name == adapter_name)
+                .ok_or(anyhow!("no adapter with name \"{adapter_name}\""))?;
+            Some(adapter)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            config,
+            session,
+            adapter,
+            mi_temp_monitor: None,
+        })
     }
 
     async fn discovery(&self) -> Result<(), BluetoothError> {
-        info!("Scanning for Bluetooth devices...");
-        self.session.start_discovery().await?;
+        if let Some(adapter) = &self.adapter {
+            info!("Scanning for devices using adapter {}...", adapter.name);
+            self.session.start_discovery_on_adapter(&adapter.id).await?;
+        } else {
+            info!("Scanning for devices using all adapters...");
+            self.session.start_discovery().await?;
+        }
+
         tokio::time::sleep(Duration::from_secs(self.config.discovery_seconds)).await;
-        self.session.stop_discovery().await?;
+
+        if let Some(adapter) = &self.adapter {
+            self.session.stop_discovery_on_adapter(&adapter.id).await?;
+        } else {
+            self.session.stop_discovery().await?;
+        }
+
         info!("Scan completed");
         Ok(())
     }
-}
 
-struct MiTempMonitor {
-    device_id: DeviceId,
-    characteristic_id: CharacteristicId,
-}
+    async fn connect_devices(&mut self) -> Result<(), BluetoothError> {
+        info!("Connecting to devices...");
 
-impl MiTempMonitor {
-    /// Returns `None` if device is not discoverable.
-    async fn connect(
-        session: &BluetoothSession,
-        mac_address: MacAddress,
-    ) -> Result<Option<Self>, BluetoothError> {
-        let device = session
-            .get_devices()
-            .await?
-            .into_iter()
-            .find(|device| device.mac_address == mac_address);
-
-        match device {
-            Some(device) => {
-                info!(
-                    "Connecting to the Mi Temperature and Humidity Monitor ({})...",
-                    mac_address
-                );
-                session.connect(&device.id).await?;
-                info!("Successfully connected");
-
-                session
-                    .get_service_characteristic_by_uuid(
-                        &device.id,
-                        MI_TEMP_SERVICE_UUID,
-                        MI_TEMP_CHARACTERISTIC_UUID,
-                    )
-                    .await
-                    .map(|characteristic| {
-                        Some(Self {
-                            device_id: device.id,
-                            characteristic_id: characteristic.id,
-                        })
-                    })
-            }
-            None => Ok(None),
+        let mi_temp_monitor =
+            MiTempMonitor::connect(&self.session, self.config.mi_temp_mac_address.parse()?).await?;
+        if let Some(mi_temp_monitor) = mi_temp_monitor {
+            self.mi_temp_monitor = Some(mi_temp_monitor);
+        } else {
+            warn!("Mi Temperature and Humidity Monitor is not available");
         }
+
+        Ok(())
     }
 }
