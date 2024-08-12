@@ -4,7 +4,7 @@ use actix_web_httpauth::extractors::{
     AuthenticationError,
 };
 
-use crate::{endpoint, AccessToken};
+use crate::{config::Config, endpoint};
 
 pub fn configure_service(config: &mut ServiceConfig) {
     config
@@ -19,10 +19,12 @@ pub async fn bearer_validator(
     auth: BearerAuth,
 ) -> Result<ServiceRequest, (actix_web::Error, ServiceRequest)> {
     let access_token = request
-        .app_data::<AccessToken>()
-        .expect("Access token is not provided");
+        .app_data::<Config>()
+        .expect("Config is not provided")
+        .access_token
+        .as_ref();
 
-    if *access_token == auth {
+    if access_token.is_none() || access_token.unwrap() == auth.token() {
         Ok(request)
     } else {
         let config = request

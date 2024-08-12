@@ -16,6 +16,9 @@ pub struct Config {
     pub server_address: String,
     pub server_port: u16,
     pub log_filter: String,
+    /// Token to access the REST API endpoints.
+    /// Set to `None` if authentication is not required.
+    pub access_token: Option<String>,
     #[validate(custom = validator::path)]
     pub site_path: PathBuf,
     #[validate]
@@ -28,6 +31,7 @@ impl Default for Config {
             server_address: "0.0.0.0".to_string(),
             server_port: 80,
             log_filter: "INFO".to_string(),
+            access_token: None,
             site_path: PathBuf::default(),
             bluetooth: Bluetooth::default(),
         }

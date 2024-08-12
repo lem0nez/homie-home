@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use env_logger::Env;
 use log::info;
 
-use rpi_server::{config::Config, rest, AccessToken};
+use rpi_server::{config::Config, rest};
 
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {
@@ -14,12 +14,10 @@ async fn main() -> anyhow::Result<()> {
         .parse_env(Env::new().default_filter_or(&config.log_filter))
         .init();
 
-    let access_token = AccessToken::from_env()?;
     let app_config = config.clone();
     HttpServer::new(move || {
         App::new()
             .wrap(actix_web::middleware::Logger::default())
-            .app_data(access_token.clone())
             .app_data(app_config.clone())
             .configure(rest::configure_service)
             .service(
