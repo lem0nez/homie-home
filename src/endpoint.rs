@@ -14,12 +14,15 @@ async fn live() -> HttpResponse {
     HttpResponse::Ok().finish()
 }
 
-#[post("/api/validate", wrap = "HttpAuthentication::bearer(bearer_validator)")]
+#[post(
+    "/api/validate",
+    wrap = "HttpAuthentication::with_fn(bearer_validator)"
+)]
 async fn validate() -> HttpResponse {
     HttpResponse::Ok().finish()
 }
 
-#[post("/api/backup", wrap = "HttpAuthentication::bearer(bearer_validator)")]
+#[post("/api/backup", wrap = "HttpAuthentication::with_fn(bearer_validator)")]
 async fn backup() -> actix_web::Result<HttpResponse> {
     let mut child = Command::new("rpi-backup")
         .stdout(Stdio::piped())
@@ -39,7 +42,10 @@ async fn backup() -> actix_web::Result<HttpResponse> {
     }
 }
 
-#[post("/api/poweroff", wrap = "HttpAuthentication::bearer(bearer_validator)")]
+#[post(
+    "/api/poweroff",
+    wrap = "HttpAuthentication::with_fn(bearer_validator)"
+)]
 async fn poweroff() -> actix_web::Result<HttpResponse> {
     let result = Command::new("systemctl")
         .arg("poweroff")
