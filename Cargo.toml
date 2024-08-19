@@ -20,6 +20,7 @@ actix-web-httpauth = "0.8.1"
 anyhow = "1.0.86"
 # It's used to stream data through a REST endpoint.
 async-stream = "0.3.5"
+backoff = { version = "0.4.0", features = ["tokio"] }
 bluez-async = "0.7.2"
 chrono = "0.4.38"
 env_logger = "0.11.3"

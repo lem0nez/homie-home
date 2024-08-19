@@ -30,7 +30,10 @@ async fn main() -> anyhow::Result<()> {
     let bluetooth_clone = Arc::clone(&bluetooth);
     tokio::spawn(async move {
         let mut bluetooth = bluetooth.lock().await;
-        if bluetooth.discovery().await.is_ok() {
+        // We must additionally wait until an adapter will be powered on to avoid discovery errors
+        // (documentation says that when discovery starts an adapter will be turned on automatically:
+        // it doesn't work just after the system started).
+        if bluetooth.wait_until_powered().await.is_ok() && bluetooth.discovery().await.is_ok() {
             let _ = bluetooth
                 .connect_or_reconnect(bluetooth::DeviceType::MiTempMonitor)
                 .await;

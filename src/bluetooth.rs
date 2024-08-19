@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use backoff::exponential::ExponentialBackoff;
 use bluez_async::{AdapterInfo, BluetoothError, BluetoothSession, DeviceInfo, MacAddress};
 use log::{error, info, warn};
 
@@ -12,6 +13,11 @@ use crate::{
     config,
     device::{mi_temp_monitor::MiTempMonitor, BluetoothDevice},
 };
+
+/// Interval between checks.
+const MAX_ADAPTERS_WAIT_INTERVAL: Duration = Duration::from_millis(500);
+/// Total time spent for waiting.
+const MAX_ADAPTERS_WAIT_TIME: Duration = Duration::from_secs(10);
 
 pub struct Bluetooth {
     config: config::Bluetooth,
@@ -26,10 +32,12 @@ impl Bluetooth {
         info!("Attaching to the daemon...");
         let (_, session) = BluetoothSession::new().await?;
 
+        // If the server started on system boot, Bluetooth adapters may not be available yet.
+        info!("Waiting for adapters...");
+        let adapters = wait_for_adapters(&session).await?;
+
         let adapter = if let Some(adapter_name) = config.adapter_name.as_deref() {
-            let adapter = session
-                .get_adapters()
-                .await?
+            let adapter = adapters
                 .into_iter()
                 .find(|adapter| adapter.name == adapter_name)
                 .ok_or(anyhow!("no adapter with name \"{adapter_name}\""))?;
@@ -47,6 +55,41 @@ impl Bluetooth {
 
             mi_temp_monitor,
         })
+    }
+
+    /// If `self.adapter` is `Some`, wait until it will be powered,
+    /// otherwise wait for ANY adapter to be turned on.
+    pub async fn wait_until_powered(&self) -> Result<(), BluetoothError> {
+        info!(
+            "Waiting until {} will be powered on...",
+            self.adapter
+                .as_ref()
+                .map(|adapter| format!("adapter {}", adapter.name))
+                .unwrap_or("any adapter".to_string())
+        );
+        backoff::future::retry(adapters_backoff(), || async {
+            let adapters = if let Some(adapter) = &self.adapter {
+                self.session
+                    .get_adapter_info(&adapter.id)
+                    .await
+                    .map(|info| vec![info])
+            } else {
+                self.session.get_adapters().await
+            }
+            .map_err(|err| {
+                error!("Failed to get adapter(s) info: {err}");
+                backoff::Error::permanent(err)
+            })?;
+            if adapters.into_iter().any(|adapter| adapter.powered) {
+                info!("Adapter is turned on");
+                Ok(())
+            } else {
+                Err(backoff::Error::transient(
+                    BluetoothError::NoBluetoothAdapters,
+                ))
+            }
+        })
+        .await
     }
 
     pub async fn discovery(&self) -> Result<(), BluetoothError> {
@@ -130,6 +173,25 @@ impl<D: BluetoothDevice> Display for DeviceHolder<D> {
     }
 }
 
+/// Wait until ANY (may be not all) adapter is available and then return a list of them.
+async fn wait_for_adapters(session: &BluetoothSession) -> Result<Vec<AdapterInfo>, BluetoothError> {
+    backoff::future::retry(adapters_backoff(), || async {
+        match session.get_adapters().await {
+            Ok(adapters) => {
+                if adapters.is_empty() {
+                    Err(backoff::Error::transient(
+                        BluetoothError::NoBluetoothAdapters,
+                    ))
+                } else {
+                    Ok(adapters)
+                }
+            }
+            Err(e) => Err(backoff::Error::permanent(e)),
+        }
+    })
+    .await
+}
+
 /// Returns `Ok` on successful connection or if device with the provided MAC address is not found.
 /// Previously connected device instance will be disconnected and dropped
 /// (even if disconnection failed).
@@ -201,5 +263,15 @@ fn device_short_info(device_info: &DeviceInfo) -> String {
         format!("{name} ({mac_address})")
     } else {
         mac_address
+    }
+}
+
+fn adapters_backoff() -> ExponentialBackoff<backoff::SystemClock> {
+    ExponentialBackoff::<backoff::SystemClock> {
+        initial_interval: Duration::from_millis(100),
+        randomization_factor: 0.0,
+        max_interval: MAX_ADAPTERS_WAIT_INTERVAL,
+        max_elapsed_time: Some(MAX_ADAPTERS_WAIT_TIME),
+        ..Default::default()
     }
 }
