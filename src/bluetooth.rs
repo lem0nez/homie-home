@@ -92,7 +92,13 @@ impl Bluetooth {
         .await
     }
 
-    pub async fn discovery(&self) -> Result<(), BluetoothError> {
+    /// Perform discovery if not all the devices are present.
+    pub async fn discovery_if_required(&self) -> Result<(), BluetoothError> {
+        if self.is_all_devices_discovered().await? {
+            info!("Discovery skipped because all devices are present");
+            return Ok(());
+        }
+
         if let Some(adapter) = &self.adapter {
             info!(
                 "Scanning for {} s using adapter {}...",
@@ -126,6 +132,17 @@ impl Bluetooth {
         Ok(())
     }
 
+    async fn is_all_devices_discovered(&self) -> Result<bool, BluetoothError> {
+        let devices = get_devices(&self.session, self.adapter.as_ref()).await?;
+        Ok([self.mi_temp_monitor.mac_address()]
+            .into_iter()
+            .all(|mac_address| {
+                devices
+                    .iter()
+                    .any(|device| device.mac_address == mac_address)
+            }))
+    }
+
     pub async fn connect_or_reconnect(
         &mut self,
         device_type: DeviceType,
@@ -151,6 +168,13 @@ pub enum DeviceHolder<D: BluetoothDevice> {
 }
 
 impl<D: BluetoothDevice> DeviceHolder<D> {
+    fn mac_address(&self) -> MacAddress {
+        match self {
+            DeviceHolder::Address(mac_address) => *mac_address,
+            DeviceHolder::Connected(device) => device.cached_info().mac_address,
+        }
+    }
+
     /// Useful we need to move the connected device instance outside.
     fn exchange_with(&mut self, mac_address: MacAddress) -> Option<D> {
         match mem::replace(self, Self::Address(mac_address)) {
@@ -203,11 +227,7 @@ async fn connect_or_reconnect<D>(
 where
     D: BluetoothDevice,
 {
-    let mac_address = match &device {
-        DeviceHolder::Address(mac_address) => *mac_address,
-        DeviceHolder::Connected(bluetooth_device) => bluetooth_device.cached_info().mac_address,
-    };
-
+    let mac_address = device.mac_address();
     if let DeviceHolder::Connected(_) = device {
         info!("Disconnecting from {device}...");
         match device
@@ -241,6 +261,17 @@ async fn find_device_by_mac(
     session: &BluetoothSession,
     adapter: Option<&AdapterInfo>,
 ) -> Result<Option<DeviceInfo>, BluetoothError> {
+    get_devices(session, adapter).await.map(|devices| {
+        devices
+            .into_iter()
+            .find(|info| info.mac_address == mac_address)
+    })
+}
+
+async fn get_devices(
+    session: &BluetoothSession,
+    adapter: Option<&AdapterInfo>,
+) -> Result<Vec<DeviceInfo>, BluetoothError> {
     if let Some(adapter) = adapter {
         session.get_devices_on_adapter(&adapter.id).await
     } else {
@@ -249,11 +280,6 @@ async fn find_device_by_mac(
     .map_err(|err| {
         error!("Unable to get the discovered devices list: {err}");
         err
-    })
-    .map(|devices| {
-        devices
-            .into_iter()
-            .find(|info| info.mac_address == mac_address)
     })
 }
 
