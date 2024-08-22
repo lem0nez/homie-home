@@ -14,10 +14,12 @@ use crate::{
     device::{mi_temp_monitor::MiTempMonitor, BluetoothDevice},
 };
 
-/// Interval between checks.
+pub const MAX_CONNECTION_RETRIES: usize = 1;
+
+/// Starting (minimal) interval between checks.
+const ADAPTERS_WAIT_INITIAL_INTERVAL: Duration = Duration::from_millis(100);
+/// Maximum interval between checks.
 const MAX_ADAPTERS_WAIT_INTERVAL: Duration = Duration::from_millis(500);
-/// Total time spent for waiting.
-const MAX_ADAPTERS_WAIT_TIME: Duration = Duration::from_secs(10);
 
 pub struct Bluetooth {
     config: config::Bluetooth,
@@ -294,10 +296,10 @@ fn device_short_info(device_info: &DeviceInfo) -> String {
 
 fn adapters_backoff() -> ExponentialBackoff<backoff::SystemClock> {
     ExponentialBackoff::<backoff::SystemClock> {
-        initial_interval: Duration::from_millis(100),
-        randomization_factor: 0.0,
+        initial_interval: ADAPTERS_WAIT_INITIAL_INTERVAL,
         max_interval: MAX_ADAPTERS_WAIT_INTERVAL,
-        max_elapsed_time: Some(MAX_ADAPTERS_WAIT_TIME),
+        randomization_factor: 0.0,
+        max_elapsed_time: None, // Wait forever.
         ..Default::default()
     }
 }
