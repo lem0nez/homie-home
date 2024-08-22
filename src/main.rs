@@ -35,9 +35,13 @@ async fn main() -> anyhow::Result<()> {
         // it doesn't work just after the system started).
         if bluetooth.wait_until_powered().await.is_err() {
             warn!("Timed out waiting for an adapter...");
-        } else if bluetooth.discovery_if_required().await.is_ok() {
+        } else if bluetooth
+            .discovery_if_required(bluetooth::DeviceRequest::All)
+            .await
+            .is_ok()
+        {
             let _ = bluetooth
-                .connect_or_reconnect(bluetooth::DeviceType::MiTempMonitor)
+                .connect_or_reconnect(bluetooth::DeviceRequest::All)
                 .await;
         }
     });

@@ -6,8 +6,11 @@ use std::{
 
 use anyhow::anyhow;
 use backoff::exponential::ExponentialBackoff;
-use bluez_async::{AdapterInfo, BluetoothError, BluetoothSession, DeviceInfo, MacAddress};
+use bluez_async::{
+    AdapterId, AdapterInfo, BluetoothError, BluetoothSession, DeviceInfo, MacAddress,
+};
 use log::{error, info, warn};
+use strum::{EnumIter, IntoEnumIterator};
 
 use crate::{
     config,
@@ -94,10 +97,14 @@ impl Bluetooth {
         .await
     }
 
-    /// Perform discovery if not all the devices are present.
-    pub async fn discovery_if_required(&self) -> Result<(), BluetoothError> {
-        if self.is_all_devices_discovered().await? {
-            info!("Discovery skipped because all devices are present");
+    /// Perform discovery if requested devices are not present.
+    pub async fn discovery_if_required(
+        &self,
+        device_request: DeviceRequest,
+    ) -> Result<(), BluetoothError> {
+        let device_request_description = device_request.to_string();
+        if self.is_devices_discovered(device_request).await? {
+            info!("Discovery skipped because devices are present: {device_request_description}");
             return Ok(());
         }
 
@@ -134,34 +141,81 @@ impl Bluetooth {
         Ok(())
     }
 
-    async fn is_all_devices_discovered(&self) -> Result<bool, BluetoothError> {
-        let devices = get_devices(&self.session, self.adapter.as_ref()).await?;
-        Ok([self.mi_temp_monitor.mac_address()]
-            .into_iter()
-            .all(|mac_address| {
-                devices
-                    .iter()
-                    .any(|device| device.mac_address == mac_address)
-            }))
-    }
-
     pub async fn connect_or_reconnect(
         &mut self,
-        device_type: DeviceType,
+        device_request: DeviceRequest,
     ) -> Result<(), BluetoothError> {
-        connect_or_reconnect(
-            match device_type {
-                DeviceType::MiTempMonitor => &mut self.mi_temp_monitor,
-            },
+        for device_id in device_request.into_vec() {
+            connect_or_reconnect(
+                match device_id {
+                    DeviceId::MiTempMonitor => &mut self.mi_temp_monitor,
+                },
+                &self.session,
+                self.adapter.as_ref().map(|adapter| &adapter.id),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn is_devices_discovered(&self, request: DeviceRequest) -> Result<bool, BluetoothError> {
+        let discovered_mac_addresses: Vec<_> = get_devices(
             &self.session,
-            self.adapter.as_ref(),
+            self.adapter.as_ref().map(|adapter| &adapter.id),
         )
-        .await
+        .await?
+        .into_iter()
+        .map(|device| device.mac_address)
+        .collect();
+
+        Ok(request
+            .into_vec()
+            .into_iter()
+            .all(|id| discovered_mac_addresses.contains(&self.device_ref(id).mac_address())))
+    }
+
+    fn device_ref(&self, id: DeviceId) -> &DeviceHolder<impl BluetoothDevice> {
+        match id {
+            DeviceId::MiTempMonitor => &self.mi_temp_monitor,
+        }
     }
 }
 
-pub enum DeviceType {
+#[derive(Clone, Copy, EnumIter, strum::Display)]
+pub enum DeviceId {
+    #[strum(serialize = "Mi Temperature and Humidity Monitor 2")]
     MiTempMonitor,
+}
+
+#[derive(Clone)]
+pub enum DeviceRequest {
+    All,
+    Single(DeviceId),
+    Multiple(Vec<DeviceId>),
+}
+
+impl DeviceRequest {
+    fn into_vec(self) -> Vec<DeviceId> {
+        match self {
+            DeviceRequest::All => DeviceId::iter().collect(),
+            DeviceRequest::Single(id) => vec![id],
+            DeviceRequest::Multiple(ids) => ids,
+        }
+    }
+}
+
+impl Display for DeviceRequest {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.write_str(&match self {
+            DeviceRequest::All => "ALL".to_string(),
+            DeviceRequest::Single(id) => id.to_string(),
+            DeviceRequest::Multiple(ids) => ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        })
+    }
 }
 
 pub enum DeviceHolder<D: BluetoothDevice> {
@@ -224,7 +278,7 @@ async fn wait_for_adapters(session: &BluetoothSession) -> Result<Vec<AdapterInfo
 async fn connect_or_reconnect<D>(
     device: &mut DeviceHolder<D>,
     session: &BluetoothSession,
-    adapter: Option<&AdapterInfo>,
+    adapter_id: Option<&AdapterId>,
 ) -> Result<(), BluetoothError>
 where
     D: BluetoothDevice,
@@ -243,7 +297,7 @@ where
         }
     }
 
-    if let Some(found_device) = find_device_by_mac(mac_address, session, adapter).await? {
+    if let Some(found_device) = find_device_by_mac(mac_address, session, adapter_id).await? {
         let short_device_info = device_short_info(&found_device);
         info!("Connecting to {short_device_info}...");
         *device =
@@ -261,9 +315,9 @@ where
 async fn find_device_by_mac(
     mac_address: MacAddress,
     session: &BluetoothSession,
-    adapter: Option<&AdapterInfo>,
+    adapter_id: Option<&AdapterId>,
 ) -> Result<Option<DeviceInfo>, BluetoothError> {
-    get_devices(session, adapter).await.map(|devices| {
+    get_devices(session, adapter_id).await.map(|devices| {
         devices
             .into_iter()
             .find(|info| info.mac_address == mac_address)
@@ -272,10 +326,10 @@ async fn find_device_by_mac(
 
 async fn get_devices(
     session: &BluetoothSession,
-    adapter: Option<&AdapterInfo>,
+    adapter_id: Option<&AdapterId>,
 ) -> Result<Vec<DeviceInfo>, BluetoothError> {
-    if let Some(adapter) = adapter {
-        session.get_devices_on_adapter(&adapter.id).await
+    if let Some(adapter_id) = adapter_id {
+        session.get_devices_on_adapter(adapter_id).await
     } else {
         session.get_devices().await
     }

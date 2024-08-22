@@ -30,6 +30,7 @@ log = "0.4.21"
 serde = "1.0.203"
 # Used for the user configuration validation.
 serde_valid = "0.24.0"
+strum = { version = "0.26.3", features = ["derive"] }
 # Using tokio process instead of std to avoid zombie processes
 # when calling commands from Actix Web endpoints.
 tokio = { version = "1.38.0", features = ["process"] }
