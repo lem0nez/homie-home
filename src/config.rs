@@ -71,6 +71,34 @@ impl Config {
     }
 }
 
+pub mod bluetooth_backoff {
+    use std::time::Duration;
+
+    type ExponentialBackoff = backoff::exponential::ExponentialBackoff<backoff::SystemClock>;
+
+    /// Used for waiting until an adapter will be available or powered on.
+    pub fn adapter_wait() -> ExponentialBackoff {
+        ExponentialBackoff {
+            initial_interval: Duration::from_millis(100),
+            max_interval: Duration::from_millis(500),
+            max_elapsed_time: None, // Wait forever.
+            randomization_factor: 0.0,
+            ..Default::default()
+        }
+    }
+
+    /// Used when trying to connect to device.
+    pub fn device_connect() -> ExponentialBackoff {
+        ExponentialBackoff {
+            initial_interval: Duration::from_secs(1),
+            max_interval: Duration::from_secs(3),
+            max_elapsed_time: Some(Duration::from_secs(30)),
+            randomization_factor: 0.0,
+            ..Default::default()
+        }
+    }
+}
+
 mod validator {
     use serde_valid::validation::Error;
     use std::{path::Path, str::FromStr};

@@ -5,7 +5,6 @@ use std::{
 };
 
 use anyhow::anyhow;
-use backoff::exponential::ExponentialBackoff;
 use bluez_async::{
     AdapterId, AdapterInfo, BluetoothError, BluetoothSession, DeviceInfo, MacAddress,
 };
@@ -13,16 +12,9 @@ use log::{error, info, warn};
 use strum::{EnumIter, IntoEnumIterator};
 
 use crate::{
-    config,
+    config::{self, bluetooth_backoff},
     device::{mi_temp_monitor::MiTempMonitor, BluetoothDevice},
 };
-
-pub const MAX_CONNECTION_RETRIES: usize = 1;
-
-/// Starting (minimal) interval between checks.
-const ADAPTERS_WAIT_INITIAL_INTERVAL: Duration = Duration::from_millis(100);
-/// Maximum interval between checks.
-const MAX_ADAPTERS_WAIT_INTERVAL: Duration = Duration::from_millis(500);
 
 pub struct Bluetooth {
     config: config::Bluetooth,
@@ -72,7 +64,7 @@ impl Bluetooth {
                 .map(|adapter| format!("adapter {}", adapter.name))
                 .unwrap_or("any adapter".to_string())
         );
-        backoff::future::retry(adapters_backoff(), || async {
+        backoff::future::retry(bluetooth_backoff::adapter_wait(), || async {
             let adapters = if let Some(adapter) = &self.adapter {
                 self.session
                     .get_adapter_info(&adapter.id)
@@ -255,7 +247,7 @@ impl<D: BluetoothDevice> Display for DeviceHolder<D> {
 
 /// Wait until ANY (may be not all) adapter is available and then return a list of them.
 async fn wait_for_adapters(session: &BluetoothSession) -> Result<Vec<AdapterInfo>, BluetoothError> {
-    backoff::future::retry(adapters_backoff(), || async {
+    backoff::future::retry(bluetooth_backoff::adapter_wait(), || async {
         match session.get_adapters().await {
             Ok(adapters) => {
                 if adapters.is_empty() {
@@ -300,11 +292,21 @@ where
     if let Some(found_device) = find_device_by_mac(mac_address, session, adapter_id).await? {
         let short_device_info = device_short_info(&found_device);
         info!("Connecting to {short_device_info}...");
-        *device =
-            DeviceHolder::Connected(D::connect(found_device, session).await.map_err(|err| {
+        *device = DeviceHolder::Connected(
+            backoff::future::retry(bluetooth_backoff::device_connect(), || async {
+                D::connect(found_device.clone(), session)
+                    .await
+                    .map_err(|err| {
+                        warn!("Got error \"{err}\" while connecting; retrying...");
+                        backoff::Error::transient(err)
+                    })
+            })
+            .await
+            .map_err(|err| {
                 error!("Connection failed for {short_device_info}: {err}");
                 err
-            })?);
+            })?,
+        );
         info!("Connected successfully");
     } else {
         warn!("Device with address {mac_address} is not found");
@@ -345,15 +347,5 @@ fn device_short_info(device_info: &DeviceInfo) -> String {
         format!("{name} ({mac_address})")
     } else {
         mac_address
-    }
-}
-
-fn adapters_backoff() -> ExponentialBackoff<backoff::SystemClock> {
-    ExponentialBackoff::<backoff::SystemClock> {
-        initial_interval: ADAPTERS_WAIT_INITIAL_INTERVAL,
-        max_interval: MAX_ADAPTERS_WAIT_INTERVAL,
-        randomization_factor: 0.0,
-        max_elapsed_time: None, // Wait forever.
-        ..Default::default()
     }
 }

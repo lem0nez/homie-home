@@ -1,9 +1,6 @@
 use std::future::Future;
 
 use bluez_async::{BluetoothError, BluetoothSession, DeviceInfo};
-use log::warn;
-
-use crate::bluetooth;
 
 pub mod mi_temp_monitor;
 
@@ -32,14 +29,7 @@ pub trait BluetoothDevice: Sized {
         session: &BluetoothSession,
     ) -> impl Future<Output = Result<Self, BluetoothError>> {
         async {
-            // Retry here because we don't want to retry the `do_after_connect` callback.
-            for _ in 0..bluetooth::MAX_CONNECTION_RETRIES {
-                if let Err(e) = session.connect(&device_info.id).await {
-                    warn!("Got error \"{e}\" while connecting; retrying...");
-                    continue;
-                }
-                break;
-            }
+            session.connect(&device_info.id).await?;
             Self::do_after_connect(device_info, session).await
         }
     }
