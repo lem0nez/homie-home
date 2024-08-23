@@ -191,9 +191,9 @@ pub enum DeviceRequest {
 impl DeviceRequest {
     fn into_vec(self) -> Vec<DeviceId> {
         match self {
-            DeviceRequest::All => DeviceId::iter().collect(),
-            DeviceRequest::Single(id) => vec![id],
-            DeviceRequest::Multiple(ids) => ids,
+            Self::All => DeviceId::iter().collect(),
+            Self::Single(id) => vec![id],
+            Self::Multiple(ids) => ids,
         }
     }
 }
@@ -201,9 +201,9 @@ impl DeviceRequest {
 impl Display for DeviceRequest {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.write_str(&match self {
-            DeviceRequest::All => "ALL".to_string(),
-            DeviceRequest::Single(id) => id.to_string(),
-            DeviceRequest::Multiple(ids) => ids
+            Self::All => "ALL".to_string(),
+            Self::Single(id) => id.to_string(),
+            Self::Multiple(ids) => ids
                 .iter()
                 .map(|id| id.to_string())
                 .collect::<Vec<_>>()
@@ -214,22 +214,16 @@ impl Display for DeviceRequest {
 
 pub enum DeviceHolder<D: BluetoothDevice> {
     Address(MacAddress),
+    Disconnecting(MacAddress),
+    Connecting(MacAddress),
     Connected(D),
 }
 
 impl<D: BluetoothDevice> DeviceHolder<D> {
     fn mac_address(&self) -> MacAddress {
         match self {
-            DeviceHolder::Address(mac_address) => *mac_address,
-            DeviceHolder::Connected(device) => device.cached_info().mac_address,
-        }
-    }
-
-    /// Useful we need to move the connected device instance outside.
-    fn exchange_with(&mut self, mac_address: MacAddress) -> Option<D> {
-        match mem::replace(self, Self::Address(mac_address)) {
-            DeviceHolder::Address(_) => None,
-            DeviceHolder::Connected(device) => Some(device),
+            Self::Address(mac) | Self::Disconnecting(mac) | Self::Connecting(mac) => *mac,
+            Self::Connected(device) => device.cached_info().mac_address,
         }
     }
 }
@@ -240,8 +234,9 @@ impl<D: BluetoothDevice> Display for DeviceHolder<D> {
             f,
             "{}",
             match self {
-                DeviceHolder::Address(mac_address) => mac_address.to_string(),
-                DeviceHolder::Connected(device) => device_short_info(device.cached_info()),
+                Self::Address(mac) | Self::Disconnecting(mac) | Self::Connecting(mac) =>
+                    mac.to_string(),
+                Self::Connected(device) => device_short_info(device.cached_info()),
             }
         )
     }
@@ -266,7 +261,11 @@ async fn wait_for_adapters(session: &BluetoothSession) -> Result<Vec<AdapterInfo
     .await
 }
 
-/// Returns `Ok` on successful connection or if device with the provided MAC address is not found.
+/// Returns `Ok` if:
+/// 1. device is in connecting or disconnecting state;
+/// 2. device with the provided MAC address is not found;
+/// 3. connection succeed;
+///
 /// Previously connected device instance will be disconnected and dropped
 /// (even if disconnection failed).
 async fn connect_or_reconnect<D>(
@@ -278,20 +277,23 @@ where
     D: BluetoothDevice,
 {
     let mac_address = device.mac_address();
-    if let DeviceHolder::Connected(_) = device {
-        info!("Disconnecting from {device}...");
-        match device
-            .exchange_with(mac_address)
-            .expect("device is not connected")
-            .disconnect(session)
-            .await
-        {
-            Ok(_) => info!("Disconnected successfully"),
-            Err(e) => warn!("Failed to properly close the connection: {e}"),
-        }
+
+    if let DeviceHolder::Disconnecting(_) | DeviceHolder::Connecting(_) = device {
+        info!("Ignoring connect request, because device {device} is busy");
+        return Ok(());
+    } else if let DeviceHolder::Connected(_) = device {
+        let _ = disconnect(device, session).await;
     }
 
-    if let Some(found_device) = find_device_by_mac(mac_address, session, adapter_id).await? {
+    *device = DeviceHolder::Connecting(mac_address);
+    let found_device = find_device_by_mac(mac_address, session, adapter_id)
+        .await
+        .map_err(|err| {
+            *device = DeviceHolder::Address(mac_address);
+            err
+        })?;
+
+    if let Some(found_device) = found_device {
         let short_device_info = device_short_info(&found_device);
         info!("Connecting to {short_device_info}...");
         *device = DeviceHolder::Connected(
@@ -305,13 +307,48 @@ where
             })
             .await
             .map_err(|err| {
+                *device = DeviceHolder::Address(mac_address);
                 error!("Connection failed for {short_device_info}: {err}");
                 err
             })?,
         );
         info!("Connected successfully");
     } else {
+        *device = DeviceHolder::Address(mac_address);
         warn!("Device with address {mac_address} is not found");
+    }
+    Ok(())
+}
+
+/// Disconnect if device is connected: `device` will be replaced with
+/// `DeviceHolder::Address`, even if disconnection failed.
+async fn disconnect<D>(
+    device: &mut DeviceHolder<D>,
+    session: &BluetoothSession,
+) -> Result<(), BluetoothError>
+where
+    D: BluetoothDevice,
+{
+    if let DeviceHolder::Connected(_) = device {
+        info!("Disconnecting from {device}...");
+        let mac_address = device.mac_address();
+
+        let result = match mem::replace(device, DeviceHolder::Disconnecting(mac_address)) {
+            DeviceHolder::Connected(device) => Some(device),
+            _ => None,
+        }
+        .expect("device is not connected")
+        .disconnect(session)
+        .await;
+
+        *device = DeviceHolder::Address(mac_address);
+        result.map_err(|err| {
+            error!("Failed to disconnect: {err}");
+            err
+        })?;
+        info!("Disconnected successfully");
+    } else {
+        info!("Ignoring disconnect request, because device {device} is not connected");
     }
     Ok(())
 }

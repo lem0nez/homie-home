@@ -61,8 +61,8 @@ impl Default for Bluetooth {
 }
 
 impl Config {
-    pub fn new() -> anyhow::Result<Config> {
-        let config: Config = Figment::new()
+    pub fn new() -> anyhow::Result<Self> {
+        let config: Self = Figment::new()
             .merge(Yaml::file(YAML_FILE_LOCATION))
             .merge(Env::prefixed(ENV_PREFIX))
             .extract()?;
