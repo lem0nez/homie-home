@@ -89,8 +89,27 @@ impl Bluetooth {
         .await
     }
 
+    /// Discovery will be performed if requested devices are not present.
+    pub async fn connect_or_reconnect(
+        &mut self,
+        device_request: DeviceRequest,
+    ) -> Result<(), BluetoothError> {
+        self.discovery_if_required(device_request.clone()).await?;
+        for device_id in device_request.into_vec() {
+            connect_or_reconnect(
+                match device_id {
+                    DeviceId::MiTempMonitor => &mut self.mi_temp_monitor,
+                },
+                &self.session,
+                self.adapter.as_ref().map(|adapter| &adapter.id),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     /// Perform discovery if requested devices are not present.
-    pub async fn discovery_if_required(
+    async fn discovery_if_required(
         &self,
         device_request: DeviceRequest,
     ) -> Result<(), BluetoothError> {
@@ -130,23 +149,6 @@ impl Bluetooth {
         }
 
         info!("Scan completed");
-        Ok(())
-    }
-
-    pub async fn connect_or_reconnect(
-        &mut self,
-        device_request: DeviceRequest,
-    ) -> Result<(), BluetoothError> {
-        for device_id in device_request.into_vec() {
-            connect_or_reconnect(
-                match device_id {
-                    DeviceId::MiTempMonitor => &mut self.mi_temp_monitor,
-                },
-                &self.session,
-                self.adapter.as_ref().map(|adapter| &adapter.id),
-            )
-            .await?;
-        }
         Ok(())
     }
 
