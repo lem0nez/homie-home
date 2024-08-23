@@ -1,6 +1,7 @@
 use std::{
     fmt::{self, Display, Formatter},
     mem,
+    sync::Arc,
     time::Duration,
 };
 
@@ -10,18 +11,98 @@ use bluez_async::{
 };
 use log::{error, info, warn};
 use strum::{EnumIter, IntoEnumIterator};
+use tokio::sync::RwLock;
 
 use crate::{
     config::{self, bluetooth_backoff},
     device::{mi_temp_monitor::MiTempMonitor, BluetoothDevice},
 };
 
+type DeviceHolder<D> = Arc<RwLock<Device<D>>>;
+
+#[derive(Clone, Copy, EnumIter, strum::Display)]
+pub enum DeviceId {
+    #[strum(serialize = "Mi Temperature and Humidity Monitor 2")]
+    MiTempMonitor,
+}
+
+pub enum Device<D: BluetoothDevice> {
+    Address(MacAddress),
+    Connecting(MacAddress),
+    Disconnecting(MacAddress),
+    Connected(D),
+}
+
+impl<D: BluetoothDevice> Device<D> {
+    fn mac_address(&self) -> MacAddress {
+        match self {
+            Self::Address(mac) | Self::Connecting(mac) | Self::Disconnecting(mac) => *mac,
+            Self::Connected(device) => device.cached_info().mac_address,
+        }
+    }
+}
+
+impl<D: BluetoothDevice> Display for Device<D> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Address(mac) | Self::Connecting(mac) | Self::Disconnecting(mac) =>
+                    mac.to_string(),
+                Self::Connected(device) => device_short_info(device.cached_info()),
+            }
+        )
+    }
+}
+
+#[derive(Clone)]
+pub enum DeviceRequest {
+    All,
+    Single(DeviceId),
+    Multiple(Vec<DeviceId>),
+}
+
+impl DeviceRequest {
+    fn into_vec(self) -> Vec<DeviceId> {
+        match self {
+            Self::All => DeviceId::iter().collect(),
+            Self::Single(id) => vec![id],
+            Self::Multiple(ids) => ids,
+        }
+    }
+}
+
+impl Display for DeviceRequest {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.write_str(&match self {
+            Self::All => "ALL".to_string(),
+            Self::Single(id) => id.to_string(),
+            Self::Multiple(ids) => ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        })
+    }
+}
+
+#[derive(Clone)]
 pub struct Bluetooth {
     config: config::Bluetooth,
     session: BluetoothSession,
     adapter: Option<AdapterInfo>,
 
     pub mi_temp_monitor: DeviceHolder<MiTempMonitor>,
+}
+
+/// Returning `impl BluetoothDevice` from a method breaks Send marker.
+macro_rules! match_device {
+    ($self:ident, $id:ident) => {
+        match $id {
+            DeviceId::MiTempMonitor => Arc::clone(&$self.mi_temp_monitor),
+        }
+    };
 }
 
 impl Bluetooth {
@@ -43,14 +124,14 @@ impl Bluetooth {
             None
         };
 
-        let mi_temp_monitor = DeviceHolder::Address(config.mi_temp_mac_address.parse()?);
+        let mi_temp_monitor = Device::Address(config.mi_temp_mac_address.parse()?);
         info!("Initialized successfully");
         Ok(Self {
             config,
             session,
             adapter,
 
-            mi_temp_monitor,
+            mi_temp_monitor: Arc::new(RwLock::new(mi_temp_monitor)),
         })
     }
 
@@ -97,9 +178,7 @@ impl Bluetooth {
         self.discovery_if_required(device_request.clone()).await?;
         for device_id in device_request.into_vec() {
             connect_or_reconnect(
-                match device_id {
-                    DeviceId::MiTempMonitor => &mut self.mi_temp_monitor,
-                },
+                match_device!(self, device_id),
                 &self.session,
                 self.adapter.as_ref().map(|adapter| &adapter.id),
             )
@@ -162,83 +241,13 @@ impl Bluetooth {
         .map(|device| device.mac_address)
         .collect();
 
-        Ok(request
-            .into_vec()
-            .into_iter()
-            .all(|id| discovered_mac_addresses.contains(&self.device_ref(id).mac_address())))
-    }
-
-    fn device_ref(&self, id: DeviceId) -> &DeviceHolder<impl BluetoothDevice> {
-        match id {
-            DeviceId::MiTempMonitor => &self.mi_temp_monitor,
-        }
-    }
-}
-
-#[derive(Clone, Copy, EnumIter, strum::Display)]
-pub enum DeviceId {
-    #[strum(serialize = "Mi Temperature and Humidity Monitor 2")]
-    MiTempMonitor,
-}
-
-#[derive(Clone)]
-pub enum DeviceRequest {
-    All,
-    Single(DeviceId),
-    Multiple(Vec<DeviceId>),
-}
-
-impl DeviceRequest {
-    fn into_vec(self) -> Vec<DeviceId> {
-        match self {
-            Self::All => DeviceId::iter().collect(),
-            Self::Single(id) => vec![id],
-            Self::Multiple(ids) => ids,
-        }
-    }
-}
-
-impl Display for DeviceRequest {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        f.write_str(&match self {
-            Self::All => "ALL".to_string(),
-            Self::Single(id) => id.to_string(),
-            Self::Multiple(ids) => ids
-                .iter()
-                .map(|id| id.to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
-        })
-    }
-}
-
-pub enum DeviceHolder<D: BluetoothDevice> {
-    Address(MacAddress),
-    Disconnecting(MacAddress),
-    Connecting(MacAddress),
-    Connected(D),
-}
-
-impl<D: BluetoothDevice> DeviceHolder<D> {
-    fn mac_address(&self) -> MacAddress {
-        match self {
-            Self::Address(mac) | Self::Disconnecting(mac) | Self::Connecting(mac) => *mac,
-            Self::Connected(device) => device.cached_info().mac_address,
-        }
-    }
-}
-
-impl<D: BluetoothDevice> Display for DeviceHolder<D> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                Self::Address(mac) | Self::Disconnecting(mac) | Self::Connecting(mac) =>
-                    mac.to_string(),
-                Self::Connected(device) => device_short_info(device.cached_info()),
+        for device_id in request.into_vec() {
+            let mac_address = match_device!(self, device_id).read().await.mac_address();
+            if !discovered_mac_addresses.contains(&mac_address) {
+                return Ok(false);
             }
-        )
+        }
+        Ok(true)
     }
 }
 
@@ -262,41 +271,28 @@ async fn wait_for_adapters(session: &BluetoothSession) -> Result<Vec<AdapterInfo
 }
 
 /// Returns `Ok` if:
-/// 1. device is in connecting or disconnecting state;
-/// 2. device with the provided MAC address is not found;
-/// 3. connection succeed;
+/// 1. device with the provided MAC address is not found;
+/// 2. connection succeed;
 ///
 /// Previously connected device instance will be disconnected and dropped
 /// (even if disconnection failed).
 async fn connect_or_reconnect<D>(
-    device: &mut DeviceHolder<D>,
+    device: DeviceHolder<D>,
     session: &BluetoothSession,
     adapter_id: Option<&AdapterId>,
 ) -> Result<(), BluetoothError>
 where
     D: BluetoothDevice,
 {
-    let mac_address = device.mac_address();
-
-    if let DeviceHolder::Disconnecting(_) | DeviceHolder::Connecting(_) = device {
-        info!("Ignoring connect request, because device {device} is busy");
-        return Ok(());
-    } else if let DeviceHolder::Connected(_) = device {
-        let _ = disconnect(device, session).await;
+    let mac_address = device.read().await.mac_address();
+    if let Device::Connected(_) = *device.read().await {
+        let _ = disconnect(Arc::clone(&device), session).await;
     }
 
-    *device = DeviceHolder::Connecting(mac_address);
-    let found_device = find_device_by_mac(mac_address, session, adapter_id)
-        .await
-        .map_err(|err| {
-            *device = DeviceHolder::Address(mac_address);
-            err
-        })?;
-
-    if let Some(found_device) = found_device {
+    if let Some(found_device) = find_device_by_mac(mac_address, session, adapter_id).await? {
         let short_device_info = device_short_info(&found_device);
         info!("Connecting to {short_device_info}...");
-        *device = DeviceHolder::Connected(
+        *device.write().await = Device::Connected(
             backoff::future::retry(bluetooth_backoff::device_connect(), || async {
                 D::connect(found_device.clone(), session)
                     .await
@@ -307,48 +303,45 @@ where
             })
             .await
             .map_err(|err| {
-                *device = DeviceHolder::Address(mac_address);
                 error!("Connection failed for {short_device_info}: {err}");
                 err
             })?,
         );
         info!("Connected successfully");
     } else {
-        *device = DeviceHolder::Address(mac_address);
         warn!("Device with address {mac_address} is not found");
     }
     Ok(())
 }
 
 /// Disconnect if device is connected: `device` will be replaced with
-/// `DeviceHolder::Address`, even if disconnection failed.
+/// `Device::Address`, even if disconnection failed.
 async fn disconnect<D>(
-    device: &mut DeviceHolder<D>,
+    device: DeviceHolder<D>,
     session: &BluetoothSession,
 ) -> Result<(), BluetoothError>
 where
     D: BluetoothDevice,
 {
-    if let DeviceHolder::Connected(_) = device {
-        info!("Disconnecting from {device}...");
-        let mac_address = device.mac_address();
+    let device_info = device.read().await.to_string();
 
-        let result = match mem::replace(device, DeviceHolder::Disconnecting(mac_address)) {
-            DeviceHolder::Connected(device) => Some(device),
+    if let Device::Connected(_) = *device.read().await {
+        let mac_address = device.read().await.mac_address();
+        info!("Disconnecting from {device_info}...");
+        match mem::replace(&mut *device.write().await, Device::Address(mac_address)) {
+            Device::Connected(device) => Some(device),
             _ => None,
         }
         .expect("device is not connected")
         .disconnect(session)
-        .await;
-
-        *device = DeviceHolder::Address(mac_address);
-        result.map_err(|err| {
+        .await
+        .map_err(|err| {
             error!("Failed to disconnect: {err}");
             err
         })?;
         info!("Disconnected successfully");
     } else {
-        info!("Ignoring disconnect request, because device {device} is not connected");
+        info!("Ignoring disconnect request, because device {device_info} is not connected");
     }
     Ok(())
 }
