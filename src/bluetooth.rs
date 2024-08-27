@@ -18,7 +18,7 @@ use crate::{
     device::{mi_temp_monitor::MiTempMonitor, BluetoothDevice},
 };
 
-type DeviceHolder<D> = Arc<RwLock<Device<D>>>;
+pub type DeviceHolder<D> = Arc<RwLock<Device<D>>>;
 
 #[derive(Clone, Copy, EnumIter, strum::Display)]
 pub enum DeviceId {
@@ -46,11 +46,17 @@ impl<D: BluetoothDevice> Display for Device<D> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
-            "{}",
+            "{} [{}]",
             match self {
                 Self::Address(mac) | Self::Connecting(mac) | Self::Disconnecting(mac) =>
                     mac.to_string(),
                 Self::Connected(device) => device_short_info(device.cached_info()),
+            },
+            match self {
+                Self::Address(_) => "disconnected",
+                Self::Connecting(_) => "is connecting",
+                Self::Disconnecting(_) => "is disconnecting",
+                Self::Connected(_) => "connected",
             }
         )
     }
@@ -96,7 +102,8 @@ pub struct Bluetooth {
     pub mi_temp_monitor: DeviceHolder<MiTempMonitor>,
 }
 
-/// Returning `impl BluetoothDevice` from a method breaks Send marker.
+/// Using this macro, because returning `impl BluetoothDevice`
+/// from a method removes the Send marker.
 macro_rules! match_device {
     ($self:ident, $id:ident) => {
         match $id {
@@ -271,8 +278,9 @@ async fn wait_for_adapters(session: &BluetoothSession) -> Result<Vec<AdapterInfo
 }
 
 /// Returns `Ok` if:
-/// 1. device with the provided MAC address is not found;
-/// 2. connection succeed;
+/// 1. device is already connecting or disconnecting;
+/// 2. device with the provided MAC address is not found;
+/// 3. connected successfully.
 ///
 /// Previously connected device instance will be disconnected and dropped
 /// (even if disconnection failed).
@@ -284,31 +292,50 @@ async fn connect_or_reconnect<D>(
 where
     D: BluetoothDevice,
 {
-    let mac_address = device.read().await.mac_address();
-    if let Device::Connected(_) = *device.read().await {
-        let _ = disconnect(Arc::clone(&device), session).await;
+    match *device.read().await {
+        Device::Connected(_) => {
+            // Ignore if disconnection failed.
+            let _ = disconnect(Arc::clone(&device), session).await;
+        }
+        Device::Connecting(mac) | Device::Disconnecting(mac) => {
+            info!("Ignoring connect request for device {mac}, because it's busy");
+            return Ok(());
+        }
+        Device::Address(_) => {}
     }
+
+    let mac_address = device.read().await.mac_address();
+    // Store sate instead of acquiring the exclusive write lock
+    // while connecting to not block the parallel callers.
+    *device.write().await = Device::Connecting(mac_address);
 
     if let Some(found_device) = find_device_by_mac(mac_address, session, adapter_id).await? {
         let short_device_info = device_short_info(&found_device);
         info!("Connecting to {short_device_info}...");
-        *device.write().await = Device::Connected(
-            backoff::future::retry(bluetooth_backoff::device_connect(), || async {
-                D::connect(found_device.clone(), session)
-                    .await
-                    .map_err(|err| {
-                        warn!("Got error \"{err}\" while connecting; retrying...");
-                        backoff::Error::transient(err)
-                    })
-            })
-            .await
-            .map_err(|err| {
-                error!("Connection failed for {short_device_info}: {err}");
-                err
-            })?,
-        );
-        info!("Connected successfully");
+
+        let result = backoff::future::retry(bluetooth_backoff::device_connect(), || async {
+            D::connect(found_device.clone(), session)
+                .await
+                .map_err(|err| {
+                    warn!("Got error \"{err}\" while connecting; retrying...");
+                    backoff::Error::transient(err)
+                })
+        })
+        .await;
+
+        match result {
+            Ok(device_result) => {
+                *device.write().await = Device::Connected(device_result);
+                info!("Connected successfully");
+            }
+            Err(e) => {
+                *device.write().await = Device::Address(mac_address);
+                error!("Connection failed for {short_device_info}: {e}");
+                return Err(e);
+            }
+        }
     } else {
+        *device.write().await = Device::Address(mac_address);
         warn!("Device with address {mac_address} is not found");
     }
     Ok(())
@@ -326,22 +353,43 @@ where
     let device_info = device.read().await.to_string();
 
     if let Device::Connected(_) = *device.read().await {
-        let mac_address = device.read().await.mac_address();
         info!("Disconnecting from {device_info}...");
-        match mem::replace(&mut *device.write().await, Device::Address(mac_address)) {
-            Device::Connected(device) => Some(device),
-            _ => None,
+        let mac_address = device.read().await.mac_address();
+
+        // Using nested block to drop the write guard before performing the disconnect process.
+        let result = {
+            let mut device_write = device.write().await;
+            match mem::replace(&mut *device_write, Device::Disconnecting(mac_address)) {
+                Device::Connected(device) => device,
+                // The following cases can happen if another thread changed
+                // the device state after checking the state and before replacing.
+                Device::Connecting(_) => {
+                    *device_write = Device::Connecting(mac_address);
+                    info!("Disconnect rejected because device is in connecting state");
+                    return Ok(());
+                }
+                Device::Disconnecting(_) => {
+                    info!("Disconnect rejected because device already is in disconnecting state");
+                    return Ok(());
+                }
+                Device::Address(_) => {
+                    *device_write = Device::Address(mac_address);
+                    info!("Disconnect rejected because device is not connected");
+                    return Ok(());
+                }
+            }
         }
-        .expect("device is not connected")
         .disconnect(session)
-        .await
-        .map_err(|err| {
+        .await;
+
+        *device.write().await = Device::Address(mac_address);
+        result.map_err(|err| {
             error!("Failed to disconnect: {err}");
             err
         })?;
         info!("Disconnected successfully");
     } else {
-        info!("Ignoring disconnect request, because device {device_info} is not connected");
+        info!("Ignoring disconnect request for {device_info}");
     }
     Ok(())
 }
