@@ -34,9 +34,9 @@ type SharedOptData = Arc<Mutex<Option<Data>>>;
 pub struct MiTempMonitor {
     cached_info: DeviceInfo,
     characteristic_id: CharacteristicId,
-
-    last_data: SharedOptData,
     data_fetcher: AbortHandle,
+
+    pub last_data: SharedOptData,
 }
 
 impl BluetoothDevice for MiTempMonitor {
@@ -118,7 +118,7 @@ impl MiTempMonitor {
     }
 }
 
-struct Data {
+pub struct Data {
     timepoint: DateTime<chrono::Local>,
     temp_celsius: f32,
     humidity_percents: u8,

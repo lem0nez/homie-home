@@ -45,7 +45,7 @@ pub trait BluetoothDevice: Sized {
         }
     }
 
-    /// Returns `false` is the device is not connected or communication with it is broken.
+    /// Returns `false` is the device is not connected or communication is broken.
     fn is_healthy(&self, session: &BluetoothSession) -> impl Future<Output = bool> {
         async {
             let is_connected = session
