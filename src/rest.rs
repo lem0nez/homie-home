@@ -1,53 +1,86 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use actix_web::{dev::ServiceRequest, error::ErrorUnauthorized, web::ServiceConfig};
+use actix_web::{dev::ServiceRequest, error::ErrorUnauthorized, http::header, web::ServiceConfig};
 use actix_web_httpauth::extractors::{
     bearer::{self, BearerAuth},
     AuthenticationError,
 };
-use log::debug;
+use log::{info, warn};
 
-use crate::{config::Config, endpoint};
+use crate::{endpoint, SharedData};
 
-pub fn configure_service(config: &mut ServiceConfig) {
-    config
+pub fn configure_service(service_config: &mut ServiceConfig, data: &SharedData) {
+    service_config
         .service(endpoint::live)
         .service(endpoint::validate)
+        // Subscription endpoint MUST be registered BEFORE the playground endpoint
+        // (there are both GET requests, but subscription is WebSocket).
+        .service(endpoint::graphql_subscription)
+        .service(endpoint::graphql)
+        .service(endpoint::graphql_playground)
         .service(endpoint::backup)
-        .service(endpoint::poweroff);
+        .service(endpoint::poweroff)
+        // Host the static files.
+        .service(
+            actix_files::Files::new("/", &data.config.site_path)
+                // Be able to access the sub-directories.
+                .show_files_listing()
+                .index_file("index.html"),
+        );
 }
 
-pub async fn bearer_validator(
+pub async fn auth_validator(
     request: ServiceRequest,
-    auth: Option<BearerAuth>,
+    bearer_header: Option<BearerAuth>,
 ) -> Result<ServiceRequest, (actix_web::Error, ServiceRequest)> {
     if let Some(addr) = request.peer_addr() {
         let ip = addr.ip();
         if ip == Ipv4Addr::LOCALHOST || ip == Ipv6Addr::LOCALHOST {
-            debug!("Authentication skipped, because client's address is localhost");
+            info!("Authentication skipped, because client's address is localhost");
             return Ok(request);
         }
     }
 
     let access_token = request
-        .app_data::<Config>()
-        .expect("Config is not provided")
+        .app_data::<SharedData>()
+        .expect("Shared data is not provided")
+        .config
         .access_token
         .as_ref();
 
     if access_token.is_none() {
-        Ok(request)
-    } else if let Some(auth) = auth {
-        if access_token.unwrap() == auth.token() {
+        return Ok(request);
+    }
+
+    let request_token = bearer_header
+        .map(|auth| auth.token().to_string())
+        .or_else(|| {
+            request
+                .cookie(header::AUTHORIZATION.as_str())
+                .map(|cookie| cookie.value().to_string())
+        });
+
+    if let Some(request_token) = request_token {
+        if *access_token.unwrap() == request_token {
             Ok(request)
         } else {
             let config = request
                 .app_data::<bearer::Config>()
                 .cloned()
                 .unwrap_or_default();
+            warn!(
+                "Incorrect authorization data from {}",
+                request
+                    .peer_addr()
+                    .map(|addr| addr.ip().to_string())
+                    .unwrap_or("UNKNOWN".to_string())
+            );
             Err((AuthenticationError::from(config).into(), request))
         }
     } else {
-        Err((ErrorUnauthorized("bearer header is not provided"), request))
+        Err((
+            ErrorUnauthorized("bearer header or authorization cookie is not provided"),
+            request,
+        ))
     }
 }

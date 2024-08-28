@@ -1,8 +1,7 @@
-use std::future::Future;
+pub mod mi_temp_monitor;
 
 use bluez_async::{BluetoothError, BluetoothSession, DeviceInfo};
-
-pub mod mi_temp_monitor;
+use std::future::Future;
 
 pub trait BluetoothDevice: Sized {
     fn do_after_connect(
