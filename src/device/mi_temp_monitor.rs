@@ -94,6 +94,10 @@ impl BluetoothDevice for MiTempMonitor {
     fn cached_info(&self) -> &DeviceInfo {
         &self.cached_info
     }
+
+    fn name() -> &'static str {
+        "Mi Temperature and Humidity Monitor 2"
+    }
 }
 
 impl MiTempMonitor {

@@ -19,6 +19,8 @@ pub trait BluetoothDevice: Sized {
 
     fn cached_info(&self) -> &DeviceInfo;
 
+    fn name() -> &'static str;
+
     // ----------------------- //
     // Default implementations //
     // ----------------------- //

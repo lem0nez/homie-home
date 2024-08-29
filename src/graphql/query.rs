@@ -2,9 +2,9 @@ use std::ops::Deref;
 
 use async_graphql::Object;
 
-use crate::SharedData;
+use crate::App;
 
-pub struct QueryRoot(pub(super) SharedData);
+pub struct QueryRoot(pub(super) App);
 
 #[Object]
 impl QueryRoot {
@@ -16,7 +16,7 @@ impl QueryRoot {
 }
 
 impl Deref for QueryRoot {
-    type Target = SharedData;
+    type Target = App;
 
     fn deref(&self) -> &Self::Target {
         &self.0

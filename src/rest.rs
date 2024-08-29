@@ -7,9 +7,9 @@ use actix_web_httpauth::extractors::{
 };
 use log::{info, warn};
 
-use crate::{endpoint, SharedData};
+use crate::{endpoint, App};
 
-pub fn configure_service(service_config: &mut ServiceConfig, data: &SharedData) {
+pub fn configure_service(service_config: &mut ServiceConfig, app: &App) {
     service_config
         .service(endpoint::live)
         .service(endpoint::validate)
@@ -22,7 +22,7 @@ pub fn configure_service(service_config: &mut ServiceConfig, data: &SharedData) 
         .service(endpoint::poweroff)
         // Host the static files.
         .service(
-            actix_files::Files::new("/", &data.config.site_path)
+            actix_files::Files::new("/", &app.config.site_path)
                 // Be able to access the sub-directories.
                 .show_files_listing()
                 .index_file("index.html"),
@@ -42,8 +42,8 @@ pub async fn auth_validator(
     }
 
     let access_token = request
-        .app_data::<SharedData>()
-        .expect("Shared data is not provided")
+        .app_data::<App>()
+        .expect("App data is not provided")
         .config
         .access_token
         .as_ref();
