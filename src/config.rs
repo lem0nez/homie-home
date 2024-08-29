@@ -91,7 +91,7 @@ pub mod bluetooth_backoff {
     pub fn device_connect() -> ExponentialBackoff {
         ExponentialBackoff {
             initial_interval: Duration::from_secs(1),
-            max_interval: Duration::from_secs(3),
+            max_interval: Duration::from_secs(5),
             max_elapsed_time: Some(Duration::from_secs(30)),
             randomization_factor: 0.0,
             ..Default::default()

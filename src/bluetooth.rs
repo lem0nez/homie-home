@@ -1,5 +1,6 @@
 use std::{
     fmt::{self, Display, Formatter},
+    marker::PhantomData,
     mem,
     sync::Arc,
     time::Duration,
@@ -32,6 +33,14 @@ pub enum Device<D: BluetoothDevice> {
 }
 
 impl<D: BluetoothDevice> Device<D> {
+    pub fn get_connected(&self) -> Result<&D, DeviceAccessError<D>> {
+        if let Self::Connected(device) = &self {
+            Ok(device)
+        } else {
+            Err(DeviceAccessError::NotConnected(PhantomData))
+        }
+    }
+
     fn mac_address(&self) -> MacAddress {
         match self {
             Self::Address(mac) | Self::Connecting(mac) | Self::Disconnecting(mac) => *mac,
@@ -57,6 +66,18 @@ impl<D: BluetoothDevice> Display for Device<D> {
             }
         )
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DeviceAccessError<D: BluetoothDevice> {
+    #[error("Device {} is not connected", D::name())]
+    NotConnected(PhantomData<D>),
+    #[error("Device {} is in connecting state", D::name())]
+    Connecting(PhantomData<D>),
+    #[error("Device {} is in disconnecting state", D::name())]
+    Disconnecting(PhantomData<D>),
+    #[error("Device {} is unhealthy. It will be reconnected", D::name())]
+    Unhealthy(PhantomData<D>),
 }
 
 #[derive(Clone)]
@@ -128,6 +149,38 @@ impl Bluetooth {
         .await
     }
 
+    /// It returns `Ok` only if `device` is `Device::Connected` and it's healthy.
+    pub async fn ensure_connected_and_healthy<D>(
+        &self,
+        device: DeviceHolder<D>,
+    ) -> Result<DeviceHolder<D>, DeviceAccessError<D>>
+    where
+        D: BluetoothDevice + 'static,
+    {
+        match &*device.read().await {
+            Device::Address(_) => {
+                info!("Requested access to {}. Connecting to it...", D::name());
+                self.connect_or_reconnect_in_background(device.clone())
+                    .await;
+                return Err(DeviceAccessError::Connecting(PhantomData));
+            }
+            Device::Connecting(_) => return Err(DeviceAccessError::Connecting(PhantomData)),
+            Device::Disconnecting(_) => return Err(DeviceAccessError::Disconnecting(PhantomData)),
+            Device::Connected(connected_device) => {
+                if !connected_device.is_healthy(&self.session).await {
+                    info!(
+                        "Device {} is unhealthy. Reconnecting...",
+                        device.read().await
+                    );
+                    self.connect_or_reconnect_in_background(device.clone())
+                        .await;
+                    return Err(DeviceAccessError::Unhealthy(PhantomData));
+                }
+            }
+        }
+        Ok(device)
+    }
+
     /// Discovery will be performed if the device is not present.
     /// Returns `Ok` if:
     /// 1. device is already connecting or disconnecting;
@@ -143,21 +196,24 @@ impl Bluetooth {
     where
         D: BluetoothDevice,
     {
-        self.discovery_if_required(Arc::clone(&device)).await?;
+        self.discovery_if_required(device.clone()).await?;
 
-        match *device.read().await {
+        let device_read = device.read().await;
+        let mac_address = device_read.mac_address();
+
+        match *device_read {
             Device::Connected(_) => {
+                drop(device_read);
                 // Ignore if disconnection failed.
-                let _ = self.disconnect(Arc::clone(&device)).await;
+                let _ = self.disconnect(device.clone()).await;
             }
             Device::Connecting(mac) | Device::Disconnecting(mac) => {
                 info!("Ignoring connect request for device {mac}, because it's busy");
                 return Ok(());
             }
-            Device::Address(_) => {}
+            Device::Address(_) => drop(device_read),
         }
 
-        let mac_address = device.read().await.mac_address();
         // Store sate instead of acquiring the exclusive write lock
         // while connecting to not block the parallel callers.
         *device.write().await = Device::Connecting(mac_address);
@@ -194,17 +250,25 @@ impl Bluetooth {
         Ok(())
     }
 
+    async fn connect_or_reconnect_in_background<D>(&self, device: DeviceHolder<D>)
+    where
+        D: BluetoothDevice + 'static,
+    {
+        let self_clone = self.clone();
+        tokio::spawn(async move { self_clone.connect_or_reconnect(device).await });
+    }
+
     /// Disconnect if device is connected: `device` will be replaced with
     /// `Device::Address`, even if disconnection failed.
     pub async fn disconnect<D>(&self, device: DeviceHolder<D>) -> Result<(), BluetoothError>
     where
         D: BluetoothDevice,
     {
-        let device_info = device.read().await.to_string();
-
-        if let Device::Connected(_) = *device.read().await {
-            info!("Disconnecting from {device_info}...");
-            let mac_address = device.read().await.mac_address();
+        let device_read = device.read().await;
+        if let Device::Connected(_) = *device_read {
+            info!("Disconnecting from {device_read}...");
+            let mac_address = device_read.mac_address();
+            drop(device_read);
 
             // Using nested block to drop the write guard before performing the disconnect process.
             let result = {
@@ -241,7 +305,7 @@ impl Bluetooth {
             })?;
             info!("Disconnected successfully");
         } else {
-            info!("Ignoring disconnect request for {device_info}");
+            info!("Ignoring disconnect request for {device_read}");
         }
         Ok(())
     }
@@ -254,17 +318,13 @@ impl Bluetooth {
     where
         D: BluetoothDevice,
     {
-        // Using nested block to drop the read guard before discovering.
+        if self
+            .find_device_by_mac(required_device.read().await.mac_address())
+            .await?
+            .is_some()
         {
-            let device_read = required_device.read().await;
-            if self
-                .find_device_by_mac(device_read.mac_address())
-                .await?
-                .is_some()
-            {
-                info!("Discovery skipped because {} is present", D::name());
-                return Ok(());
-            }
+            info!("Discovery skipped because {} is present", D::name());
+            return Ok(());
         }
 
         if let Some(adapter) = &self.adapter {

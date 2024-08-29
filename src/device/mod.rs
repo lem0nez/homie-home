@@ -3,19 +3,19 @@ pub mod mi_temp_monitor;
 use bluez_async::{BluetoothError, BluetoothSession, DeviceInfo};
 use std::future::Future;
 
-pub trait BluetoothDevice: Sized {
+pub trait BluetoothDevice: Sized + Send + Sync {
     fn do_after_connect(
         device_info: DeviceInfo,
         session: &BluetoothSession,
-    ) -> impl Future<Output = Result<Self, BluetoothError>>;
+    ) -> impl Future<Output = Result<Self, BluetoothError>> + Send;
 
     fn do_before_disconnect(
         self,
         session: &BluetoothSession,
-    ) -> impl Future<Output = Result<(), BluetoothError>>;
+    ) -> impl Future<Output = Result<(), BluetoothError>> + Send;
 
     /// Return `true` if communication with the device is good.
-    fn is_operating(&self) -> impl Future<Output = bool>;
+    fn is_operating(&self) -> impl Future<Output = bool> + Send;
 
     fn cached_info(&self) -> &DeviceInfo;
 
@@ -28,7 +28,7 @@ pub trait BluetoothDevice: Sized {
     fn connect(
         device_info: DeviceInfo,
         session: &BluetoothSession,
-    ) -> impl Future<Output = Result<Self, BluetoothError>> {
+    ) -> impl Future<Output = Result<Self, BluetoothError>> + Send {
         async {
             session.connect(&device_info.id).await?;
             Self::do_after_connect(device_info, session).await
@@ -38,7 +38,7 @@ pub trait BluetoothDevice: Sized {
     fn disconnect(
         self,
         session: &BluetoothSession,
-    ) -> impl Future<Output = Result<(), BluetoothError>> {
+    ) -> impl Future<Output = Result<(), BluetoothError>> + Send {
         async {
             let device_id = self.cached_info().id.clone();
             self.do_before_disconnect(session).await?;
@@ -47,7 +47,7 @@ pub trait BluetoothDevice: Sized {
     }
 
     /// Returns `false` is the device is not connected or communication is broken.
-    fn is_healthy(&self, session: &BluetoothSession) -> impl Future<Output = bool> {
+    fn is_healthy(&self, session: &BluetoothSession) -> impl Future<Output = bool> + Send {
         async {
             let is_connected = session
                 .get_device_info(&self.cached_info().id)

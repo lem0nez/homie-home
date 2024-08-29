@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use async_graphql::Object;
 
-use crate::App;
+use crate::{bluetooth, device::mi_temp_monitor::MiTempMonitor, App};
 
 pub struct QueryRoot(pub(super) App);
 
@@ -10,8 +10,21 @@ pub struct QueryRoot(pub(super) App);
 impl QueryRoot {
     // TODO: remove it.
     #[graphql(deprecation)]
-    async fn debug_log_filter(&self) -> &str {
-        &self.config.log_filter
+    async fn mi_temp_monitor_data(
+        &self,
+    ) -> Result<Option<String>, bluetooth::DeviceAccessError<MiTempMonitor>> {
+        Ok(self
+            .bluetooth
+            .ensure_connected_and_healthy(self.mi_temp_monitor.clone())
+            .await?
+            .read()
+            .await
+            .get_connected()?
+            .last_data
+            .lock()
+            .await
+            .as_ref()
+            .map(|data| data.to_string()))
     }
 }
 
