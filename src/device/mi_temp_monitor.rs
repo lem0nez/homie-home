@@ -9,6 +9,7 @@ use bluez_async::{
     DeviceInfo,
 };
 use chrono::{DateTime, TimeDelta};
+use chrono_humanize::HumanTime;
 use futures::{Stream, StreamExt};
 use log::{debug, error, info, warn};
 use tokio::{sync::Mutex, task::AbortHandle};
@@ -122,6 +123,8 @@ impl MiTempMonitor {
     }
 }
 
+#[derive(Clone, Copy, async_graphql::SimpleObject)]
+#[graphql(complex, name = "MiTempMonitorData")]
 pub struct Data {
     timepoint: DateTime<chrono::Local>,
     temp_celsius: f32,
@@ -131,7 +134,19 @@ pub struct Data {
 
 impl Data {
     fn battery_percents(&self) -> u8 {
-        ((self.voltage - BATTERY_VOLTAGE_ALIGN) * 100.0).clamp(0.0, 100.0) as u8
+        ((self.voltage - BATTERY_VOLTAGE_ALIGN) * 100.0).clamp(0.0, 100.0) as _
+    }
+}
+
+#[async_graphql::ComplexObject]
+impl Data {
+    #[graphql(name = "batteryPercents")]
+    async fn battery_percents_gql(&self) -> u8 {
+        self.battery_percents()
+    }
+
+    async fn time_ago(&self) -> String {
+        HumanTime::from(chrono::Local::now() - self.timepoint).to_string()
     }
 }
 

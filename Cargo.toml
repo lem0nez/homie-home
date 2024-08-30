@@ -34,11 +34,12 @@ thiserror = "1.0.63"
 actix-files = "0.6.6"
 actix-web = "4.7.0"
 actix-web-httpauth = "0.8.1"
-async-graphql = "7.0.7"
+async-graphql = { version = "7.0.7", features = ["chrono"] }
 async-graphql-actix-web = "7.0.7"
 
 bluez-async = "0.7.2"
 chrono = "0.4.38"
+chrono-humanize = "0.2.3"
 figment = { version = "0.10.19", features = ["env", "yaml"] }
 # We are using Bluetooth service and characteristic UUIDs.
 uuid = "1.10.0"
