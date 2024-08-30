@@ -96,7 +96,7 @@ pub enum DeviceAccessError<D: BluetoothDevice> {
         D::name()
     )]
     NotFound(PhantomData<D>),
-    #[error("{} is discovering", D::name())]
+    #[error("discovering {}", D::name())]
     Discovering(PhantomData<D>),
     #[error("{} is in connecting state", D::name())]
     Connecting(PhantomData<D>),
