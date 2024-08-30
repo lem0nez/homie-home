@@ -1,9 +1,9 @@
 pub mod mi_temp_monitor;
 
 use bluez_async::{BluetoothError, BluetoothSession, DeviceInfo};
-use std::future::Future;
+use std::{fmt::Debug, future::Future};
 
-pub trait BluetoothDevice: Sized + Send + Sync {
+pub trait BluetoothDevice: Sized + Send + Sync + Debug {
     fn do_after_connect(
         device_info: DeviceInfo,
         session: &BluetoothSession,

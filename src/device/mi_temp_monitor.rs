@@ -35,6 +35,7 @@ const BATTERY_VOLTAGE_ALIGN: f32 = 2.1;
 
 type SharedOptData = Arc<Mutex<Option<Data>>>;
 
+#[derive(Debug)]
 pub struct MiTempMonitor {
     cached_info: DeviceInfo,
     characteristic_id: CharacteristicId,
@@ -141,7 +142,7 @@ impl MiTempMonitor {
     }
 }
 
-#[derive(Clone, Copy, async_graphql::SimpleObject)]
+#[derive(Clone, Copy, Debug, async_graphql::SimpleObject)]
 #[graphql(complex, name = "MiTempMonitorData")]
 pub struct Data {
     timepoint: DateTime<chrono::Local>,

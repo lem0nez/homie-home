@@ -27,6 +27,7 @@ where
 
 pub enum Device<D: BluetoothDevice> {
     Address(MacAddress),
+    Discovering(MacAddress),
     Connecting(MacAddress),
     Disconnecting(MacAddress),
     Connected(D),
@@ -41,9 +42,20 @@ impl<D: BluetoothDevice> Device<D> {
         }
     }
 
+    fn take_connected(self) -> Result<D, DeviceAccessError<D>> {
+        if let Self::Connected(device) = self {
+            Ok(device)
+        } else {
+            Err(DeviceAccessError::NotConnected(PhantomData))
+        }
+    }
+
     fn mac_address(&self) -> MacAddress {
         match self {
-            Self::Address(mac) | Self::Connecting(mac) | Self::Disconnecting(mac) => *mac,
+            Self::Address(mac)
+            | Self::Discovering(mac)
+            | Self::Connecting(mac)
+            | Self::Disconnecting(mac) => *mac,
             Self::Connected(device) => device.cached_info().mac_address,
         }
     }
@@ -55,14 +67,17 @@ impl<D: BluetoothDevice> Display for Device<D> {
             f,
             "{}{}",
             match self {
-                Self::Address(mac) | Self::Connecting(mac) | Self::Disconnecting(mac) =>
-                    mac.to_string(),
+                Self::Address(mac)
+                | Self::Discovering(mac)
+                | Self::Connecting(mac)
+                | Self::Disconnecting(mac) => mac.to_string(),
                 Self::Connected(device) => device_short_info(device.cached_info()),
             },
             match self {
                 Self::Address(_) | Self::Connected(_) => "",
-                Self::Connecting(_) => " [is connecting]",
-                Self::Disconnecting(_) => " [is disconnecting]",
+                Self::Discovering(_) => " [discovering]",
+                Self::Connecting(_) => " [connecting]",
+                Self::Disconnecting(_) => " [disconnecting]",
             }
         )
     }
@@ -72,6 +87,8 @@ impl<D: BluetoothDevice> Display for Device<D> {
 pub enum DeviceAccessError<D: BluetoothDevice> {
     #[error("{} is not connected", D::name())]
     NotConnected(PhantomData<D>),
+    #[error("{} is discovering", D::name())]
+    Discovering(PhantomData<D>),
     #[error("{} is in connecting state", D::name())]
     Connecting(PhantomData<D>),
     #[error("{} is in disconnecting state", D::name())]
@@ -164,6 +181,7 @@ impl Bluetooth {
                     .await;
                 return Err(DeviceAccessError::NotConnected(PhantomData));
             }
+            Device::Discovering(_) => return Err(DeviceAccessError::Discovering(PhantomData)),
             Device::Connecting(_) => return Err(DeviceAccessError::Connecting(PhantomData)),
             Device::Disconnecting(_) => return Err(DeviceAccessError::Disconnecting(PhantomData)),
             Device::Connected(connected_device) => {
@@ -183,7 +201,7 @@ impl Bluetooth {
 
     /// Discovery will be performed if the device is not present.
     /// Returns `Ok` if:
-    /// 1. device is already connecting or disconnecting;
+    /// 1. device is already discovering, connecting or disconnecting;
     /// 2. device with the provided MAC address is not found;
     /// 3. connected successfully.
     ///
@@ -196,8 +214,6 @@ impl Bluetooth {
     where
         D: BluetoothDevice,
     {
-        self.discovery_if_required(Arc::clone(&device)).await?;
-
         let device_read = device.read().await;
         let mac_address = device_read.mac_address();
 
@@ -207,13 +223,18 @@ impl Bluetooth {
                 // Ignore if disconnection failed.
                 let _ = self.disconnect(Arc::clone(&device)).await;
             }
-            Device::Connecting(mac) | Device::Disconnecting(mac) => {
+            Device::Discovering(mac) | Device::Connecting(mac) | Device::Disconnecting(mac) => {
                 info!("Ignoring connect request for device {mac}, because it's busy");
                 return Ok(());
             }
             Device::Address(_) => drop(device_read),
         }
 
+        *device.write().await = Device::Discovering(mac_address);
+        if let Err(e) = self.discovery_if_required::<D>(mac_address).await {
+            *device.write().await = Device::Address(mac_address);
+            return Err(e);
+        }
         // Store sate instead of acquiring the exclusive write lock
         // while connecting to not block the parallel callers.
         *device.write().await = Device::Connecting(mac_address);
@@ -264,48 +285,29 @@ impl Bluetooth {
     where
         D: BluetoothDevice,
     {
-        let device_read = device.read().await;
-        if let Device::Connected(_) = *device_read {
-            info!("Disconnecting from {device_read}...");
-            let mac_address = device_read.mac_address();
-            drop(device_read);
+        let mut device_write = device.write().await;
+        if let Device::Connected(_) = *device_write {
+            info!("Disconnecting from {device_write}...");
 
-            // Using nested block to drop the write guard before performing the disconnect process.
-            let result = {
-                let mut device_write = device.write().await;
-                match mem::replace(&mut *device_write, Device::Disconnecting(mac_address)) {
-                    Device::Connected(device) => device,
-                    // The following cases can happen if another thread changed
-                    // the device state after checking the state and before replacing.
-                    Device::Connecting(_) => {
-                        *device_write = Device::Connecting(mac_address);
-                        info!("Disconnect rejected because device is in connecting state");
-                        return Ok(());
-                    }
-                    Device::Disconnecting(_) => {
-                        info!(
-                            "Disconnect rejected because device already is in disconnecting state"
-                        );
-                        return Ok(());
-                    }
-                    Device::Address(_) => {
-                        *device_write = Device::Address(mac_address);
-                        info!("Disconnect rejected because device is not connected");
-                        return Ok(());
-                    }
-                }
-            }
-            .disconnect(&self.session)
-            .await;
+            let mac_address = device_write.mac_address();
+            let connected_device =
+                mem::replace(&mut *device_write, Device::Disconnecting(mac_address));
+            drop(device_write);
 
+            let result = connected_device
+                .take_connected()
+                .unwrap()
+                .disconnect(&self.session)
+                .await;
             *device.write().await = Device::Address(mac_address);
+
             result.map_err(|err| {
                 error!("Failed to disconnect: {err}");
                 err
             })?;
             info!("Disconnected successfully");
         } else {
-            info!("Ignoring disconnect request for {device_read}");
+            info!("Ignoring disconnect request for {device_write}");
         }
         Ok(())
     }
@@ -313,13 +315,13 @@ impl Bluetooth {
     /// Perform discovery if the required device is not present.
     async fn discovery_if_required<D>(
         &self,
-        required_device: DeviceHolder<D>,
+        required_device_mac: MacAddress,
     ) -> Result<(), BluetoothError>
     where
         D: BluetoothDevice,
     {
         if self
-            .find_device_by_mac(required_device.read().await.mac_address())
+            .find_device_by_mac(required_device_mac)
             .await?
             .is_some()
         {
