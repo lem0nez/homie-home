@@ -70,13 +70,13 @@ impl<D: BluetoothDevice> Display for Device<D> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeviceAccessError<D: BluetoothDevice> {
-    #[error("Device {} is not connected", D::name())]
+    #[error("{} is not connected", D::name())]
     NotConnected(PhantomData<D>),
-    #[error("Device {} is in connecting state", D::name())]
+    #[error("{} is in connecting state", D::name())]
     Connecting(PhantomData<D>),
-    #[error("Device {} is in disconnecting state", D::name())]
+    #[error("{} is in disconnecting state", D::name())]
     Disconnecting(PhantomData<D>),
-    #[error("Device {} is unhealthy. It will be reconnected", D::name())]
+    #[error("{} is unhealthy and will be reconnected", D::name())]
     Unhealthy(PhantomData<D>),
 }
 
@@ -160,9 +160,9 @@ impl Bluetooth {
         match &*device.read().await {
             Device::Address(_) => {
                 info!("Requested access to {}. Connecting to it...", D::name());
-                self.connect_or_reconnect_in_background(device.clone())
+                self.connect_or_reconnect_in_background(Arc::clone(&device))
                     .await;
-                return Err(DeviceAccessError::Connecting(PhantomData));
+                return Err(DeviceAccessError::NotConnected(PhantomData));
             }
             Device::Connecting(_) => return Err(DeviceAccessError::Connecting(PhantomData)),
             Device::Disconnecting(_) => return Err(DeviceAccessError::Disconnecting(PhantomData)),
@@ -172,7 +172,7 @@ impl Bluetooth {
                         "Device {} is unhealthy. Reconnecting...",
                         device.read().await
                     );
-                    self.connect_or_reconnect_in_background(device.clone())
+                    self.connect_or_reconnect_in_background(Arc::clone(&device))
                         .await;
                     return Err(DeviceAccessError::Unhealthy(PhantomData));
                 }
@@ -196,7 +196,7 @@ impl Bluetooth {
     where
         D: BluetoothDevice,
     {
-        self.discovery_if_required(device.clone()).await?;
+        self.discovery_if_required(Arc::clone(&device)).await?;
 
         let device_read = device.read().await;
         let mac_address = device_read.mac_address();
@@ -205,7 +205,7 @@ impl Bluetooth {
             Device::Connected(_) => {
                 drop(device_read);
                 // Ignore if disconnection failed.
-                let _ = self.disconnect(device.clone()).await;
+                let _ = self.disconnect(Arc::clone(&device)).await;
             }
             Device::Connecting(mac) | Device::Disconnecting(mac) => {
                 info!("Ignoring connect request for device {mac}, because it's busy");

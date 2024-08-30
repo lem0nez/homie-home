@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{ops::Deref, sync::Arc};
 
 use async_graphql::Object;
 
@@ -15,12 +15,16 @@ impl QueryRoot {
     async fn mi_temp_monitor_data(
         &self,
     ) -> Result<Option<mi_temp_monitor::Data>, bluetooth::DeviceAccessError<MiTempMonitor>> {
-        let device = self
-            .bluetooth
-            .ensure_connected_and_healthy(self.mi_temp_monitor.clone())
+        self.bluetooth
+            .ensure_connected_and_healthy(Arc::clone(&self.mi_temp_monitor))
             .await?;
-        let last_data = *device.read().await.get_connected()?.last_data.lock().await;
-        Ok(last_data)
+        Ok(self
+            .mi_temp_monitor
+            .read()
+            .await
+            .get_connected()?
+            .last_data()
+            .await)
     }
 }
 

@@ -12,7 +12,10 @@ use chrono::{DateTime, TimeDelta};
 use chrono_humanize::HumanTime;
 use futures::{Stream, StreamExt};
 use log::{debug, error, info, warn};
-use tokio::{sync::Mutex, task::AbortHandle};
+use tokio::{
+    sync::{Mutex, Notify},
+    task::AbortHandle,
+};
 use uuid::Uuid;
 
 use super::BluetoothDevice;
@@ -35,9 +38,10 @@ type SharedOptData = Arc<Mutex<Option<Data>>>;
 pub struct MiTempMonitor {
     cached_info: DeviceInfo,
     characteristic_id: CharacteristicId,
-    data_fetcher: AbortHandle,
 
-    pub last_data: SharedOptData,
+    data_fetcher: AbortHandle,
+    data_notify: Arc<Notify>,
+    last_data: SharedOptData,
 }
 
 impl BluetoothDevice for MiTempMonitor {
@@ -54,6 +58,9 @@ impl BluetoothDevice for MiTempMonitor {
             .characteristic_event_stream(&characteristic_id)
             .await?;
 
+        let data_notify = Arc::default();
+        let data_notify_clone = Arc::clone(&data_notify);
+
         let last_data = Arc::default();
         let last_data_clone = Arc::clone(&last_data);
 
@@ -61,11 +68,12 @@ impl BluetoothDevice for MiTempMonitor {
             cached_info: device_info,
             characteristic_id,
 
-            last_data,
             data_fetcher: tokio::spawn(async {
-                Self::data_fetch_loop(event_stream, last_data_clone).await
+                Self::data_fetch_loop(event_stream, last_data_clone, data_notify_clone).await
             })
             .abort_handle(),
+            data_notify,
+            last_data,
         })
     }
 
@@ -102,16 +110,26 @@ impl BluetoothDevice for MiTempMonitor {
 }
 
 impl MiTempMonitor {
+    pub async fn last_data(&self) -> Option<Data> {
+        *self.last_data.lock().await
+    }
+
+    pub fn data_notify(&self) -> (SharedOptData, Arc<Notify>) {
+        (Arc::clone(&self.last_data), Arc::clone(&self.data_notify))
+    }
+
     async fn data_fetch_loop(
         mut event_stream: impl Stream<Item = BluetoothEvent> + Unpin,
         shared_data: SharedOptData,
+        notify: Arc<Notify>,
     ) {
         while let Some(event) = event_stream.next().await {
             if let BluetoothEvent::Characteristic { id: _, event } = event {
                 match Data::try_from(event) {
                     Ok(event_data) => {
                         debug!("Received data: {event_data}");
-                        *shared_data.lock().await = Some(event_data)
+                        *shared_data.lock().await = Some(event_data);
+                        notify.notify_waiters()
                     }
                     Err(e) => error!("Failed to perform conversion of characteristic data: {e}"),
                 }
