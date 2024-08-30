@@ -27,6 +27,7 @@ where
 
 pub enum Device<D: BluetoothDevice> {
     Address(MacAddress),
+    NotFound(MacAddress),
     Discovering(MacAddress),
     Connecting(MacAddress),
     Disconnecting(MacAddress),
@@ -53,6 +54,7 @@ impl<D: BluetoothDevice> Device<D> {
     fn mac_address(&self) -> MacAddress {
         match self {
             Self::Address(mac)
+            | Self::NotFound(mac)
             | Self::Discovering(mac)
             | Self::Connecting(mac)
             | Self::Disconnecting(mac) => *mac,
@@ -68,6 +70,7 @@ impl<D: BluetoothDevice> Display for Device<D> {
             "{}{}",
             match self {
                 Self::Address(mac)
+                | Self::NotFound(mac)
                 | Self::Discovering(mac)
                 | Self::Connecting(mac)
                 | Self::Disconnecting(mac) => mac.to_string(),
@@ -75,6 +78,7 @@ impl<D: BluetoothDevice> Display for Device<D> {
             },
             match self {
                 Self::Address(_) | Self::Connected(_) => "",
+                Self::NotFound(_) => " [not found]",
                 Self::Discovering(_) => " [discovering]",
                 Self::Connecting(_) => " [connecting]",
                 Self::Disconnecting(_) => " [disconnecting]",
@@ -87,6 +91,11 @@ impl<D: BluetoothDevice> Display for Device<D> {
 pub enum DeviceAccessError<D: BluetoothDevice> {
     #[error("{} is not connected", D::name())]
     NotConnected(PhantomData<D>),
+    #[error(
+        "{} is not found and an discovery attempt will be performed again",
+        D::name()
+    )]
+    NotFound(PhantomData<D>),
     #[error("{} is discovering", D::name())]
     Discovering(PhantomData<D>),
     #[error("{} is in connecting state", D::name())]
@@ -181,12 +190,22 @@ impl Bluetooth {
                     .await;
                 return Err(DeviceAccessError::NotConnected(PhantomData));
             }
+            Device::NotFound(_) => {
+                warn!(
+                    "Requested access to {} which was not found on the previous discovery attempt. \
+                    Trying again...",
+                    D::name()
+                );
+                self.connect_or_reconnect_in_background(Arc::clone(&device))
+                    .await;
+                return Err(DeviceAccessError::NotFound(PhantomData));
+            }
             Device::Discovering(_) => return Err(DeviceAccessError::Discovering(PhantomData)),
             Device::Connecting(_) => return Err(DeviceAccessError::Connecting(PhantomData)),
             Device::Disconnecting(_) => return Err(DeviceAccessError::Disconnecting(PhantomData)),
             Device::Connected(connected_device) => {
                 if !connected_device.is_healthy(&self.session).await {
-                    info!(
+                    warn!(
                         "Device {} is unhealthy. Reconnecting...",
                         device.read().await
                     );
@@ -227,7 +246,7 @@ impl Bluetooth {
                 info!("Ignoring connect request for device {mac}, because it's busy");
                 return Ok(());
             }
-            Device::Address(_) => drop(device_read),
+            Device::Address(_) | Device::NotFound(_) => drop(device_read),
         }
 
         *device.write().await = Device::Discovering(mac_address);
@@ -265,7 +284,7 @@ impl Bluetooth {
                 }
             }
         } else {
-            *device.write().await = Device::Address(mac_address);
+            *device.write().await = Device::NotFound(mac_address);
             warn!("Device with address {mac_address} is not found");
         }
         Ok(())
