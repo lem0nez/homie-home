@@ -1,7 +1,12 @@
+pub mod description;
 pub mod mi_temp_monitor;
 
 use bluez_async::{BluetoothError, BluetoothSession, DeviceInfo};
 use std::{fmt::Debug, future::Future};
+
+pub trait DeviceDescription: Send + Sync + 'static {
+    fn name() -> &'static str;
+}
 
 pub trait BluetoothDevice: Sized + Send + Sync + Debug {
     fn do_after_connect(
@@ -18,8 +23,6 @@ pub trait BluetoothDevice: Sized + Send + Sync + Debug {
     fn is_operating(&self) -> impl Future<Output = bool> + Send;
 
     fn cached_info(&self) -> &DeviceInfo;
-
-    fn name() -> &'static str;
 
     // ----------------------- //
     // Default implementations //

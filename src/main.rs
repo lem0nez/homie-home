@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
         } else {
             let _ = app_cloned
                 .bluetooth
-                .connect_or_reconnect(app_cloned.mi_temp_monitor)
+                .connect_or_reconnect(app_cloned.lounge_temp_monitor)
                 .await;
         }
     });

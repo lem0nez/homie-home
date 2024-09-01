@@ -6,10 +6,11 @@ pub mod rest;
 mod device;
 mod endpoint;
 mod stdout_reader;
+mod utils;
 
 use bluetooth::Bluetooth;
 use config::Config;
-use device::mi_temp_monitor::MiTempMonitor;
+use device::{description, mi_temp_monitor::MiTempMonitor};
 
 #[derive(Clone)]
 /// Main object to access all the stuff: configuration, services, devices etc.
@@ -17,16 +18,16 @@ pub struct App {
     pub config: Config,
     pub bluetooth: Bluetooth,
 
-    pub mi_temp_monitor: bluetooth::DeviceHolder<MiTempMonitor>,
+    pub lounge_temp_monitor: bluetooth::DeviceHolder<MiTempMonitor, description::LoungeTempMonitor>,
 }
 
 impl App {
     pub fn new(config: Config, bluetooth: Bluetooth) -> Self {
         Self {
-            mi_temp_monitor: bluetooth::new_device(
+            lounge_temp_monitor: bluetooth::new_device(
                 config
                     .bluetooth
-                    .mi_temp_mac_address
+                    .lounge_temp_mac_address
                     .parse()
                     .expect("server configuration is not validated"),
             ),

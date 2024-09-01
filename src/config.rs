@@ -47,7 +47,7 @@ pub struct Bluetooth {
     // We can't use `bluez_async::MacAddress` directly
     // because it doesn't have `Default` implementation.
     #[validate(custom = validator::bluetooth_mac)]
-    pub mi_temp_mac_address: String,
+    pub lounge_temp_mac_address: String,
 }
 
 impl Default for Bluetooth {
@@ -55,7 +55,7 @@ impl Default for Bluetooth {
         Self {
             discovery_seconds: 5,
             adapter_name: None,
-            mi_temp_mac_address: String::default(),
+            lounge_temp_mac_address: String::default(),
         }
     }
 }

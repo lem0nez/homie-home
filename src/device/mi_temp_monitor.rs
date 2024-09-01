@@ -9,7 +9,6 @@ use bluez_async::{
     DeviceInfo,
 };
 use chrono::{DateTime, TimeDelta};
-use chrono_humanize::HumanTime;
 use futures::{Stream, StreamExt};
 use log::{debug, error, info, warn};
 use tokio::{
@@ -19,6 +18,7 @@ use tokio::{
 use uuid::Uuid;
 
 use super::BluetoothDevice;
+use crate::utils;
 
 // These service and characteristic UUIDs are used to fetch data from the device.
 const SERVICE_UUID: Uuid = Uuid::from_u128(0xebe0ccb0_7a0a_4b0c_8a1a_6ff2997da3a6);
@@ -104,10 +104,6 @@ impl BluetoothDevice for MiTempMonitor {
     fn cached_info(&self) -> &DeviceInfo {
         &self.cached_info
     }
-
-    fn name() -> &'static str {
-        "Mi Temperature and Humidity Monitor 2"
-    }
 }
 
 impl MiTempMonitor {
@@ -146,8 +142,10 @@ impl MiTempMonitor {
 #[graphql(complex, name = "MiTempMonitorData")]
 pub struct Data {
     timepoint: DateTime<chrono::Local>,
+    #[graphql(skip)]
     temp_celsius: f32,
     humidity_percents: u8,
+    #[graphql(skip)]
     voltage: f32,
 }
 
@@ -164,8 +162,12 @@ impl Data {
         self.battery_percents()
     }
 
-    async fn time_ago(&self) -> String {
-        HumanTime::from(chrono::Local::now() - self.timepoint).to_string()
+    async fn temp_celsius(&self) -> String {
+        utils::round_f32(self.temp_celsius, 1).to_string()
+    }
+
+    async fn voltage(&self) -> String {
+        utils::round_f32(self.voltage, 2).to_string()
     }
 }
 
@@ -196,11 +198,11 @@ impl Display for Data {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
-            "<{}> {:.1} °C, {} %, {:.2} V ({} %)",
+            "<{}> {} °C, {} %, {} V ({} %)",
             self.timepoint.format("%T"),
-            self.temp_celsius,
+            utils::round_f32(self.temp_celsius, 1),
             self.humidity_percents,
-            self.voltage,
+            utils::round_f32(self.voltage, 2),
             self.battery_percents(),
         )
     }

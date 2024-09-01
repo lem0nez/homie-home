@@ -13,86 +13,25 @@ use tokio::sync::RwLock;
 
 use crate::{
     config::{self, bluetooth_backoff},
-    device::BluetoothDevice,
+    device::{BluetoothDevice, DeviceDescription},
 };
 
-pub type DeviceHolder<D> = Arc<RwLock<Device<D>>>;
+pub type DeviceHolder<T, D> = Arc<RwLock<Device<T, D>>>;
 
-pub fn new_device<D>(mac_address: MacAddress) -> DeviceHolder<D>
+pub fn new_device<T, D>(mac_address: MacAddress) -> DeviceHolder<T, D>
 where
-    D: BluetoothDevice,
+    T: BluetoothDevice,
+    D: DeviceDescription,
 {
-    Arc::new(RwLock::new(Device::Address(mac_address)))
-}
-
-pub enum Device<D: BluetoothDevice> {
-    Address(MacAddress),
-    NotFound(MacAddress),
-    Discovering(MacAddress),
-    Connecting(MacAddress),
-    Disconnecting(MacAddress),
-    Connected(D),
-}
-
-impl<D: BluetoothDevice> Device<D> {
-    pub fn get_connected(&self) -> Result<&D, DeviceAccessError<D>> {
-        if let Self::Connected(device) = &self {
-            Ok(device)
-        } else {
-            Err(DeviceAccessError::NotConnected(PhantomData))
-        }
-    }
-
-    fn take_connected(self) -> Result<D, DeviceAccessError<D>> {
-        if let Self::Connected(device) = self {
-            Ok(device)
-        } else {
-            Err(DeviceAccessError::NotConnected(PhantomData))
-        }
-    }
-
-    fn mac_address(&self) -> MacAddress {
-        match self {
-            Self::Address(mac)
-            | Self::NotFound(mac)
-            | Self::Discovering(mac)
-            | Self::Connecting(mac)
-            | Self::Disconnecting(mac) => *mac,
-            Self::Connected(device) => device.cached_info().mac_address,
-        }
-    }
-}
-
-impl<D: BluetoothDevice> Display for Device<D> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}{}",
-            match self {
-                Self::Address(mac)
-                | Self::NotFound(mac)
-                | Self::Discovering(mac)
-                | Self::Connecting(mac)
-                | Self::Disconnecting(mac) => mac.to_string(),
-                Self::Connected(device) => device_short_info(device.cached_info()),
-            },
-            match self {
-                Self::Address(_) | Self::Connected(_) => "",
-                Self::NotFound(_) => " [not found]",
-                Self::Discovering(_) => " [discovering]",
-                Self::Connecting(_) => " [connecting]",
-                Self::Disconnecting(_) => " [disconnecting]",
-            }
-        )
-    }
+    Arc::new(RwLock::new(Device::NotConnected(mac_address)))
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum DeviceAccessError<D: BluetoothDevice> {
+pub enum DeviceAccessError<D: DeviceDescription> {
     #[error("{} is not connected", D::name())]
     NotConnected(PhantomData<D>),
     #[error(
-        "{} is not found and an discovery attempt will be performed again",
+        "{} is not found and the discovery attempt will be performed again",
         D::name()
     )]
     NotFound(PhantomData<D>),
@@ -104,6 +43,63 @@ pub enum DeviceAccessError<D: BluetoothDevice> {
     Disconnecting(PhantomData<D>),
     #[error("{} is unhealthy and will be reconnected", D::name())]
     Unhealthy(PhantomData<D>),
+}
+
+pub enum Device<T: BluetoothDevice, D: DeviceDescription> {
+    NotConnected(MacAddress),
+    /// Device was not found on the previous discovering.
+    NotFound(MacAddress),
+    Discovering(MacAddress),
+    Connecting(MacAddress),
+    Disconnecting(MacAddress),
+    Connected(T, PhantomData<D>),
+}
+
+impl<T: BluetoothDevice, D: DeviceDescription> Device<T, D> {
+    pub fn get_connected(&self) -> Result<&T, DeviceAccessError<D>> {
+        if let Self::Connected(device, _) = &self {
+            Ok(device)
+        } else {
+            Err(DeviceAccessError::NotConnected(PhantomData))
+        }
+    }
+
+    fn take_connected(self) -> Option<T> {
+        if let Self::Connected(device, _) = self {
+            Some(device)
+        } else {
+            None
+        }
+    }
+
+    fn mac_address(&self) -> MacAddress {
+        match self {
+            Self::NotConnected(mac)
+            | Self::NotFound(mac)
+            | Self::Discovering(mac)
+            | Self::Connecting(mac)
+            | Self::Disconnecting(mac) => *mac,
+            Self::Connected(device, _) => device.cached_info().mac_address,
+        }
+    }
+}
+
+impl<T: BluetoothDevice, D: DeviceDescription> Display for Device<T, D> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} ({}){}",
+            D::name(),
+            self.mac_address(),
+            match self {
+                Self::NotConnected(_) | Self::Connected(_, _) => "",
+                Self::NotFound(_) => " [not found]",
+                Self::Discovering(_) => " [discovering]",
+                Self::Connecting(_) => " [connecting]",
+                Self::Disconnecting(_) => " [disconnecting]",
+            }
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -176,15 +172,16 @@ impl Bluetooth {
     }
 
     /// It returns `Ok` only if `device` is `Device::Connected` and it's healthy.
-    pub async fn ensure_connected_and_healthy<D>(
+    pub async fn ensure_connected_and_healthy<T, D>(
         &self,
-        device: DeviceHolder<D>,
-    ) -> Result<DeviceHolder<D>, DeviceAccessError<D>>
+        device: DeviceHolder<T, D>,
+    ) -> Result<DeviceHolder<T, D>, DeviceAccessError<D>>
     where
-        D: BluetoothDevice + 'static,
+        T: BluetoothDevice + 'static,
+        D: DeviceDescription,
     {
         match &*device.read().await {
-            Device::Address(_) => {
+            Device::NotConnected(_) => {
                 info!("Requested access to {}. Connecting to it...", D::name());
                 self.connect_or_reconnect_in_background(Arc::clone(&device))
                     .await;
@@ -203,12 +200,9 @@ impl Bluetooth {
             Device::Discovering(_) => return Err(DeviceAccessError::Discovering(PhantomData)),
             Device::Connecting(_) => return Err(DeviceAccessError::Connecting(PhantomData)),
             Device::Disconnecting(_) => return Err(DeviceAccessError::Disconnecting(PhantomData)),
-            Device::Connected(connected_device) => {
+            Device::Connected(connected_device, _) => {
                 if !connected_device.is_healthy(&self.session).await {
-                    warn!(
-                        "Device {} is unhealthy. Reconnecting...",
-                        device.read().await
-                    );
+                    warn!("Device {} is unhealthy. Reconnecting...", D::name());
                     self.connect_or_reconnect_in_background(Arc::clone(&device))
                         .await;
                     return Err(DeviceAccessError::Unhealthy(PhantomData));
@@ -226,32 +220,33 @@ impl Bluetooth {
     ///
     /// Previously connected device instance will be disconnected and dropped
     /// (even if disconnection failed).
-    pub async fn connect_or_reconnect<D>(
+    pub async fn connect_or_reconnect<T, D>(
         &self,
-        device: DeviceHolder<D>,
+        device: DeviceHolder<T, D>,
     ) -> Result<(), BluetoothError>
     where
-        D: BluetoothDevice,
+        T: BluetoothDevice,
+        D: DeviceDescription,
     {
         let device_read = device.read().await;
         let mac_address = device_read.mac_address();
 
         match *device_read {
-            Device::Connected(_) => {
+            Device::Connected(_, _) => {
                 drop(device_read);
                 // Ignore if disconnection failed.
                 let _ = self.disconnect(Arc::clone(&device)).await;
             }
-            Device::Discovering(mac) | Device::Connecting(mac) | Device::Disconnecting(mac) => {
-                info!("Ignoring connect request for device {mac}, because it's busy");
+            Device::Discovering(_) | Device::Connecting(_) | Device::Disconnecting(_) => {
+                info!("Ignoring connect request for {device_read}");
                 return Ok(());
             }
-            Device::Address(_) | Device::NotFound(_) => drop(device_read),
+            Device::NotConnected(_) | Device::NotFound(_) => drop(device_read),
         }
 
         *device.write().await = Device::Discovering(mac_address);
         if let Err(e) = self.discovery_if_required::<D>(mac_address).await {
-            *device.write().await = Device::Address(mac_address);
+            *device.write().await = Device::NotConnected(mac_address);
             return Err(e);
         }
         // Store sate instead of acquiring the exclusive write lock
@@ -263,7 +258,7 @@ impl Bluetooth {
             info!("Connecting to {short_device_info}...");
 
             let result = backoff::future::retry(bluetooth_backoff::device_connect(), || async {
-                D::connect(found_device.clone(), &self.session)
+                T::connect(found_device.clone(), &self.session)
                     .await
                     .map_err(|err| {
                         warn!("Got error \"{err}\" while connecting; retrying...");
@@ -274,12 +269,12 @@ impl Bluetooth {
 
             match result {
                 Ok(device_result) => {
-                    *device.write().await = Device::Connected(device_result);
+                    *device.write().await = Device::Connected(device_result, PhantomData);
                     info!("Connected successfully");
                 }
                 Err(e) => {
-                    *device.write().await = Device::Address(mac_address);
-                    error!("Connection failed for {short_device_info}: {e}");
+                    *device.write().await = Device::NotConnected(mac_address);
+                    error!("Failed to connect: {e}");
                     return Err(e);
                 }
             }
@@ -290,22 +285,24 @@ impl Bluetooth {
         Ok(())
     }
 
-    async fn connect_or_reconnect_in_background<D>(&self, device: DeviceHolder<D>)
+    async fn connect_or_reconnect_in_background<T, D>(&self, device: DeviceHolder<T, D>)
     where
-        D: BluetoothDevice + 'static,
+        T: BluetoothDevice + 'static,
+        D: DeviceDescription,
     {
         let self_clone = self.clone();
         tokio::spawn(async move { self_clone.connect_or_reconnect(device).await });
     }
 
     /// Disconnect if device is connected: `device` will be replaced with
-    /// `Device::Address`, even if disconnection failed.
-    pub async fn disconnect<D>(&self, device: DeviceHolder<D>) -> Result<(), BluetoothError>
+    /// `Device::NotConnected`, even if disconnection failed.
+    pub async fn disconnect<T, D>(&self, device: DeviceHolder<T, D>) -> Result<(), BluetoothError>
     where
-        D: BluetoothDevice,
+        T: BluetoothDevice,
+        D: DeviceDescription,
     {
         let mut device_write = device.write().await;
-        if let Device::Connected(_) = *device_write {
+        if let Device::Connected(_, _) = *device_write {
             info!("Disconnecting from {device_write}...");
 
             let mac_address = device_write.mac_address();
@@ -318,7 +315,7 @@ impl Bluetooth {
                 .unwrap()
                 .disconnect(&self.session)
                 .await;
-            *device.write().await = Device::Address(mac_address);
+            *device.write().await = Device::NotConnected(mac_address);
 
             result.map_err(|err| {
                 error!("Failed to disconnect: {err}");
@@ -337,7 +334,7 @@ impl Bluetooth {
         required_device_mac: MacAddress,
     ) -> Result<(), BluetoothError>
     where
-        D: BluetoothDevice,
+        D: DeviceDescription,
     {
         if self
             .find_device_by_mac(required_device_mac)

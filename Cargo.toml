@@ -39,7 +39,6 @@ async-graphql-actix-web = "7.0.7"
 
 bluez-async = "0.7.2"
 chrono = "0.4.38"
-chrono-humanize = "0.2.3"
 figment = { version = "0.10.19", features = ["env", "yaml"] }
 # We are using Bluetooth service and characteristic UUIDs.
 uuid = "1.10.0"

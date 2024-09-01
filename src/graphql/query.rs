@@ -4,7 +4,7 @@ use async_graphql::Object;
 
 use crate::{
     bluetooth,
-    device::mi_temp_monitor::{self, MiTempMonitor},
+    device::{description, mi_temp_monitor},
     App,
 };
 
@@ -12,14 +12,17 @@ pub struct QueryRoot(pub(super) App);
 
 #[Object]
 impl QueryRoot {
-    async fn mi_temp_monitor_data(
+    async fn lounge_temp_monitor_data(
         &self,
-    ) -> Result<Option<mi_temp_monitor::Data>, bluetooth::DeviceAccessError<MiTempMonitor>> {
+    ) -> Result<
+        Option<mi_temp_monitor::Data>,
+        bluetooth::DeviceAccessError<description::LoungeTempMonitor>,
+    > {
         self.bluetooth
-            .ensure_connected_and_healthy(Arc::clone(&self.mi_temp_monitor))
+            .ensure_connected_and_healthy(Arc::clone(&self.lounge_temp_monitor))
             .await?;
         Ok(self
-            .mi_temp_monitor
+            .lounge_temp_monitor
             .read()
             .await
             .get_connected()?

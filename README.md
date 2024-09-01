@@ -51,5 +51,5 @@ bluetooth:
   # Name of Bluetooth adapter to use for the devices discovering
   adapter_name: null
   # [REQUIRED] MAC address of Xiaomi Mi Temperature and Humidity Monitor 2 (LYWSD03MMC)
-  mi_temp_mac_address: FF:00:FF:00:FF:00
+  lounge_temp_mac_address: FF:00:FF:00:FF:00
 ```

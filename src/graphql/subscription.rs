@@ -6,7 +6,7 @@ use futures::Stream;
 
 use crate::{
     bluetooth,
-    device::mi_temp_monitor::{self, MiTempMonitor},
+    device::{description, mi_temp_monitor},
     App,
 };
 
@@ -14,17 +14,17 @@ pub struct SubscriptionRoot(pub(super) App);
 
 #[Subscription]
 impl SubscriptionRoot {
-    async fn mi_temp_monitor_data(
+    async fn lounge_temp_monitor_data(
         &self,
     ) -> Result<
         impl Stream<Item = mi_temp_monitor::Data>,
-        bluetooth::DeviceAccessError<MiTempMonitor>,
+        bluetooth::DeviceAccessError<description::LoungeTempMonitor>,
     > {
         self.bluetooth
-            .ensure_connected_and_healthy(Arc::clone(&self.mi_temp_monitor))
+            .ensure_connected_and_healthy(Arc::clone(&self.lounge_temp_monitor))
             .await?;
         let (data, notify) = self
-            .mi_temp_monitor
+            .lounge_temp_monitor
             .read()
             .await
             .get_connected()?
