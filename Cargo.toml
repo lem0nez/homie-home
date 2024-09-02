@@ -18,7 +18,7 @@ async-stream = "0.3.5"
 futures = "0.3.30"
 # Using tokio process instead of std to avoid zombie processes
 # when calling commands from Actix Web endpoints.
-tokio = { version = "1.38.0", features = ["process"] }
+tokio = { version = "1.38.0", features = ["macros", "process", "rt-multi-thread"] }
 
 serde = "1.0.203"
 # Used for the user configuration validation.
@@ -40,5 +40,6 @@ async-graphql-actix-web = "7.0.7"
 bluez-async = "0.7.2"
 chrono = "0.4.38"
 figment = { version = "0.10.19", features = ["env", "yaml"] }
+tokio-udev = "0.9.1"
 # We are using Bluetooth service and characteristic UUIDs.
 uuid = "1.10.0"

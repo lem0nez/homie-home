@@ -2,6 +2,7 @@ pub mod bluetooth;
 pub mod config;
 pub mod graphql;
 pub mod rest;
+pub mod udev;
 
 mod device;
 mod endpoint;
