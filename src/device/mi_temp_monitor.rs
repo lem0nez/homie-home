@@ -1,6 +1,7 @@
 use std::{
     fmt::{self, Display, Formatter},
     sync::Arc,
+    time::{Duration, SystemTime},
 };
 
 use anyhow::{anyhow, bail};
@@ -8,9 +9,9 @@ use bluez_async::{
     BluetoothError, BluetoothEvent, BluetoothSession, CharacteristicEvent, CharacteristicId,
     DeviceInfo,
 };
-use chrono::{DateTime, TimeDelta};
+use chrono::DateTime;
 use futures::{Stream, StreamExt};
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use tokio::{
     sync::{Mutex, Notify},
     task::AbortHandle,
@@ -26,7 +27,7 @@ const CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0xebe0ccc1_7a0a_4b0c_8a1a_6ff2
 
 /// If data was fetched more than this time ago,
 /// that means communication with the device is broken.
-const MAX_ALLOWED_DATA_FETCH_DELAY: TimeDelta = TimeDelta::minutes(1);
+const MAX_ALLOWED_DATA_FETCH_DELAY: Duration = Duration::from_secs(60);
 
 /// Data size of an characteristic event.
 const DATA_SIZE: usize = 5;
@@ -39,6 +40,7 @@ type SharedOptData = Arc<Mutex<Option<Data>>>;
 pub struct MiTempMonitor {
     cached_info: DeviceInfo,
     characteristic_id: CharacteristicId,
+    initialized_at: SystemTime,
 
     data_fetcher: AbortHandle,
     data_notify: Arc<Notify>,
@@ -68,6 +70,7 @@ impl BluetoothDevice for MiTempMonitor {
         Ok(Self {
             cached_info: device_info,
             characteristic_id,
+            initialized_at: SystemTime::now(),
 
             data_fetcher: tokio::spawn(async {
                 Self::data_fetch_loop(event_stream, last_data_clone, data_notify_clone).await
@@ -86,7 +89,10 @@ impl BluetoothDevice for MiTempMonitor {
             );
         }
         self.data_fetcher.abort();
-        info!("Data fetching task is aborted");
+
+        // Let waiting tasks know that device is no longer available.
+        *self.last_data.lock().await = None;
+        self.data_notify.notify_waiters();
         Ok(())
     }
 
@@ -96,9 +102,12 @@ impl BluetoothDevice for MiTempMonitor {
             .await
             .as_ref()
             .map(|last_data| {
-                chrono::Local::now() - last_data.timepoint < MAX_ALLOWED_DATA_FETCH_DELAY
+                (chrono::Local::now() - last_data.timepoint)
+                    .to_std()
+                    .unwrap_or(Duration::ZERO)
             })
-            .unwrap_or(true)
+            .unwrap_or_else(|| self.initialized_at.elapsed().unwrap_or(Duration::ZERO))
+            < MAX_ALLOWED_DATA_FETCH_DELAY
     }
 
     fn cached_info(&self) -> &DeviceInfo {

@@ -3,12 +3,12 @@ Primarily this project written to cover my own needs, but you can find something
 yourself.
 
 ## Cross-compilation on Debian-based systems
-First you need to install the build dependency for the Bluetooth library.
+First you need to install the build dependencies for Bluetooth and Udev libraries.
 
 ```
 # dpkg --add-architecture arm64
 # apt update
-# apt install libdbus-1-dev:arm64
+# apt install libdbus-1-dev:arm64 libudev-dev:arm64
 ```
 
 After that you can build the binary.

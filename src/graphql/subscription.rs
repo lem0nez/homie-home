@@ -17,24 +17,32 @@ impl SubscriptionRoot {
     async fn lounge_temp_monitor_data(
         &self,
     ) -> Result<
-        impl Stream<Item = mi_temp_monitor::Data>,
+        impl Stream<Item = Option<mi_temp_monitor::Data>>,
         bluetooth::DeviceAccessError<description::LoungeTempMonitor>,
     > {
         self.bluetooth
             .ensure_connected_and_healthy(Arc::clone(&self.lounge_temp_monitor))
             .await?;
-        let (data, notify) = self
+        let (shared_data, notify) = self
             .lounge_temp_monitor
             .read()
             .await
             .get_connected()?
             .data_notify();
+
+        let mut last_data = *shared_data.lock().await;
         Ok(stream! {
             loop {
-                if let Some(last_data) = *data.lock().await {
-                    yield last_data;
-                }
+                yield last_data;
                 notify.notified().await;
+
+                last_data = *shared_data.lock().await;
+                // It means that device is no longer available.
+                // Do NOT perform this check before waiting for a notification,
+                // because device may be just initialized and not received data yet.
+                if last_data.is_none() {
+                    break;
+                }
             }
         })
     }
