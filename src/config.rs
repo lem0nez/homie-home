@@ -116,7 +116,12 @@ pub mod bluetooth_backoff {
 
 mod validator {
     use serde_valid::validation::Error;
-    use std::{fs, path::Path, str::FromStr};
+    use std::{
+        fs::{self, Permissions},
+        os::unix::fs::PermissionsExt,
+        path::Path,
+        str::FromStr,
+    };
 
     pub fn path_exists(path: &Path) -> Result<(), Error> {
         if path.as_os_str().is_empty() {
@@ -146,6 +151,12 @@ mod validator {
         } else {
             fs::create_dir_all(path)
                 .map_err(|err| Error::Custom(format!("unable to create the directory ({err})")))?;
+            // Only owner can read and write the directory.
+            fs::set_permissions(path, Permissions::from_mode(0o700)).map_err(|err| {
+                Error::Custom(format!(
+                    "unable to change the directory permissions ({err})"
+                ))
+            })?;
         }
         Ok(())
     }
