@@ -1973,6 +1973,7 @@ dependencies = [
  "log",
  "serde",
  "serde_valid",
+ "serde_yaml",
  "thiserror",
  "tokio",
  "tokio-udev",

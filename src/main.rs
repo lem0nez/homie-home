@@ -18,12 +18,14 @@ async fn main() -> anyhow::Result<()> {
     let bluetooth = Bluetooth::new(config.bluetooth.clone())
         .await
         .with_context(|| "Failed to initialize Bluetooth")?;
-    let app = App::new(config, bluetooth);
+    let app = App::new(config, bluetooth)
+        .await
+        .with_context(|| "Failed to initialize application")?;
 
     spawn_http_server(app.clone()).with_context(|| "Failed to start the HTTP server")?;
     spawn_bluetooth(app);
     // Running it in the main thread, because
-    // `tokio_udev::AsyncMonitorSocket` can not be sent between threads.
+    // [tokio_udev::AsyncMonitorSocket] can not be sent between threads.
     udev::handle_events_until_shutdown()
         .await
         .with_context(|| "Failed to handle device events")
@@ -52,7 +54,7 @@ fn spawn_bluetooth(app: App) {
         // (documentation says that when discovery starts an adapter will be turned on automatically:
         // it doesn't work just after the system started).
         if app.bluetooth.wait_until_powered().await.is_err() {
-            warn!("Timed out waiting for an adapter");
+            warn!("Timed out waiting for an Bluetooth adapter");
         } else {
             let _ = app
                 .bluetooth

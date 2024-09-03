@@ -12,14 +12,11 @@ use bluez_async::{
 use chrono::DateTime;
 use futures::{Stream, StreamExt};
 use log::{debug, error, warn};
-use tokio::{
-    sync::{Mutex, Notify},
-    task::AbortHandle,
-};
+use tokio::{sync::Notify, task::AbortHandle};
 use uuid::Uuid;
 
 use super::BluetoothDevice;
-use crate::utils;
+use crate::{utils, SharedMutex};
 
 // These service and characteristic UUIDs are used to fetch data from the device.
 const SERVICE_UUID: Uuid = Uuid::from_u128(0xebe0ccb0_7a0a_4b0c_8a1a_6ff2997da3a6);
@@ -34,8 +31,6 @@ const DATA_SIZE: usize = 5;
 /// Used to convert voltage into percents.
 const BATTERY_VOLTAGE_ALIGN: f32 = 2.1;
 
-type SharedOptData = Arc<Mutex<Option<Data>>>;
-
 #[derive(Debug)]
 pub struct MiTempMonitor {
     cached_info: DeviceInfo,
@@ -44,7 +39,7 @@ pub struct MiTempMonitor {
 
     data_fetcher: AbortHandle,
     data_notify: Arc<Notify>,
-    last_data: SharedOptData,
+    last_data: SharedMutex<Option<Data>>,
 }
 
 impl BluetoothDevice for MiTempMonitor {
@@ -120,13 +115,13 @@ impl MiTempMonitor {
         *self.last_data.lock().await
     }
 
-    pub fn data_notify(&self) -> (SharedOptData, Arc<Notify>) {
+    pub fn data_notify(&self) -> (SharedMutex<Option<Data>>, Arc<Notify>) {
         (Arc::clone(&self.last_data), Arc::clone(&self.data_notify))
     }
 
     async fn data_fetch_loop(
         mut event_stream: impl Stream<Item = BluetoothEvent> + Unpin,
-        shared_data: SharedOptData,
+        shared_data: SharedMutex<Option<Data>>,
         notify: Arc<Notify>,
     ) {
         while let Some(event) = event_stream.next().await {

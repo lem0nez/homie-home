@@ -14,9 +14,10 @@ use tokio::sync::RwLock;
 use crate::{
     config::{self, bluetooth_backoff},
     device::{BluetoothDevice, DeviceDescription},
+    SharedRwLock,
 };
 
-pub type DeviceHolder<T, D> = Arc<RwLock<Device<T, D>>>;
+pub type DeviceHolder<T, D> = SharedRwLock<Device<T, D>>;
 
 pub fn new_device<T, D>(mac_address: MacAddress) -> DeviceHolder<T, D>
 where
@@ -111,9 +112,7 @@ pub struct Bluetooth {
 
 impl Bluetooth {
     pub async fn new(config: config::Bluetooth) -> anyhow::Result<Self> {
-        info!("Attaching to the daemon...");
         let (_, session) = BluetoothSession::new().await?;
-
         // If the server started on system boot, Bluetooth adapters may not be available yet.
         info!("Waiting for adapters...");
         let adapters = wait_for_adapters(&session).await?;
@@ -136,7 +135,7 @@ impl Bluetooth {
         })
     }
 
-    /// If `self.adapter` is `Some`, wait until it will be powered,
+    /// If `self.adapter` is [Some], wait until it will be powered,
     /// otherwise wait for ANY adapter to be turned on.
     pub async fn wait_until_powered(&self) -> Result<(), BluetoothError> {
         info!(
@@ -171,7 +170,7 @@ impl Bluetooth {
         .await
     }
 
-    /// It returns `Ok` only if `device` is `Device::Connected` and it's healthy.
+    /// It returns [Ok] only if `device` is [Device::Connected] and it's healthy.
     pub async fn ensure_connected_and_healthy<T, D>(
         &self,
         device: DeviceHolder<T, D>,
@@ -213,7 +212,7 @@ impl Bluetooth {
     }
 
     /// Discovery will be performed if the device is not present.
-    /// Returns `Ok` if:
+    /// Returns [Ok] if:
     /// 1. device is already discovering, connecting or disconnecting;
     /// 2. device with the provided MAC address is not found;
     /// 3. connected successfully.
@@ -295,7 +294,7 @@ impl Bluetooth {
     }
 
     /// Disconnect if device is connected: `device` will be replaced with
-    /// `Device::NotConnected`, even if disconnection failed.
+    /// [Device::NotConnected], even if disconnection failed.
     pub async fn disconnect<T, D>(&self, device: DeviceHolder<T, D>) -> Result<(), BluetoothError>
     where
         T: BluetoothDevice,

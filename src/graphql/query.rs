@@ -5,6 +5,7 @@ use async_graphql::Object;
 use crate::{
     bluetooth,
     device::{description, mi_temp_monitor},
+    prefs::Preferences,
     App,
 };
 
@@ -12,6 +13,10 @@ pub struct QueryRoot(pub(super) App);
 
 #[Object]
 impl QueryRoot {
+    async fn preferences(&self) -> Preferences {
+        **self.prefs.read().await
+    }
+
     async fn lounge_temp_monitor_data(
         &self,
     ) -> Result<

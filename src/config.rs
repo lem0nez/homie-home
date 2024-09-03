@@ -17,7 +17,7 @@ pub struct Config {
     pub server_port: u16,
     pub log_filter: String,
     /// Token to access the REST API endpoints.
-    /// Set to `None` if authentication is not required.
+    /// Set to [None] if authentication is not required.
     pub access_token: Option<String>,
     /// A directory where to store all the data.
     #[validate(custom = validator::directory_writable)]
@@ -49,10 +49,10 @@ impl Default for Config {
 #[serde(default)]
 pub struct Bluetooth {
     pub discovery_seconds: u64,
-    /// If set to `None`, all available Bluetooth adapters will be used for discovering.
+    /// If set to [None], all available Bluetooth adapters will be used for discovering.
     pub adapter_name: Option<String>,
-    // We can't use `bluez_async::MacAddress` directly
-    // because it doesn't have `Deserialize` and `Default` implementations.
+    // We can't use [bluez_async::MacAddress] directly
+    // because it doesn't have [Deserialize] and [Default] implementations.
     #[validate(custom = validator::bluetooth_mac)]
     pub lounge_temp_mac_address: String,
 }

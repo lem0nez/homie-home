@@ -18,11 +18,18 @@ async-stream = "0.3.5"
 futures = "0.3.30"
 # Using tokio process instead of std to avoid zombie processes
 # when calling commands from Actix Web endpoints.
-tokio = { version = "1.38.0", features = ["macros", "process", "rt-multi-thread"] }
+tokio = { version = "1.38.0", features = [
+    "fs",
+    "macros",
+    "process",
+    "rt-multi-thread",
+] }
 
 serde = "1.0.203"
 # Used for the user configuration validation.
 serde_valid = "0.24.0"
+# For reading / writing the user preferences.
+serde_yaml = "0.9.34"
 
 anyhow = "1.0.86"
 backoff = { version = "0.4.0", features = ["tokio"] }
