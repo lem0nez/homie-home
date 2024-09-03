@@ -19,10 +19,15 @@ pub struct Config {
     /// Token to access the REST API endpoints.
     /// Set to `None` if authentication is not required.
     pub access_token: Option<String>,
-    #[validate(custom = validator::path)]
+    /// A directory where to store all the data.
+    #[validate(custom = validator::directory_writable)]
+    pub data_dir: PathBuf,
+    #[validate(custom = validator::path_exists)]
     pub site_path: PathBuf,
     #[validate]
     pub bluetooth: Bluetooth,
+    /// Information about a hosting device to which the Raspberry Pi connects to.
+    pub hotspot: Option<Hotspot>,
 }
 
 impl Default for Config {
@@ -32,8 +37,10 @@ impl Default for Config {
             server_port: 80,
             log_filter: "INFO".to_string(),
             access_token: None,
+            data_dir: "/var/lib/rpi-server".into(),
             site_path: PathBuf::default(),
             bluetooth: Bluetooth::default(),
+            hotspot: None,
         }
     }
 }
@@ -45,7 +52,7 @@ pub struct Bluetooth {
     /// If set to `None`, all available Bluetooth adapters will be used for discovering.
     pub adapter_name: Option<String>,
     // We can't use `bluez_async::MacAddress` directly
-    // because it doesn't have `Default` implementation.
+    // because it doesn't have `Deserialize` and `Default` implementations.
     #[validate(custom = validator::bluetooth_mac)]
     pub lounge_temp_mac_address: String,
 }
@@ -58,6 +65,14 @@ impl Default for Bluetooth {
             lounge_temp_mac_address: String::default(),
         }
     }
+}
+
+#[derive(Clone, Deserialize, Validate)]
+pub struct Hotspot {
+    /// NetworkManager connection. Can be one of: ID (name), UUID or path.
+    pub connection: String,
+    #[validate(custom = validator::bluetooth_mac)]
+    pub bluetooth_mac_address: String,
 }
 
 impl Config {
@@ -101,16 +116,38 @@ pub mod bluetooth_backoff {
 
 mod validator {
     use serde_valid::validation::Error;
-    use std::{path::Path, str::FromStr};
+    use std::{fs, path::Path, str::FromStr};
 
-    pub fn path(val: &Path) -> Result<(), Error> {
-        if val.as_os_str().is_empty() {
+    pub fn path_exists(path: &Path) -> Result<(), Error> {
+        if path.as_os_str().is_empty() {
             Err(Error::Custom("path must be set".to_string()))
-        } else if !val.exists() {
+        } else if !path.exists() {
             Err(Error::Custom("path does not exist".to_string()))
         } else {
             Ok(())
         }
+    }
+
+    pub fn directory_writable(path: &Path) -> Result<(), Error> {
+        if path.exists() {
+            if path.is_file() {
+                return Err(Error::Custom(
+                    "path must points at a directory, not a file".to_string(),
+                ));
+            }
+            let metadata = path.metadata().map_err(|err| {
+                Error::Custom(format!(
+                    "unable to query metadata about the directory ({err})"
+                ))
+            })?;
+            if metadata.permissions().readonly() {
+                return Err(Error::Custom("directory is read-only".to_string()));
+            }
+        } else {
+            fs::create_dir_all(path)
+                .map_err(|err| Error::Custom(format!("unable to create the directory ({err})")))?;
+        }
+        Ok(())
     }
 
     pub fn bluetooth_mac(val: &str) -> Result<(), Error> {
