@@ -1,11 +1,11 @@
-use std::io;
+use std::{io, sync::Arc};
 
 use actix_web::{web, HttpServer};
 use anyhow::Context;
 use env_logger::Env;
 use log::{info, warn};
 
-use rpi_server::{bluetooth::Bluetooth, config::Config, graphql, rest, udev, App};
+use rpi_server::{bluetooth::Bluetooth, config::Config, graphql, rest, shutdown_notify, udev, App};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -18,7 +18,9 @@ async fn main() -> anyhow::Result<()> {
     let bluetooth = Bluetooth::new(config.bluetooth.clone())
         .await
         .with_context(|| "Failed to initialize Bluetooth")?;
-    let app = App::new(config, bluetooth)
+    let shutdown_notify =
+        shutdown_notify().with_context(|| "Failed to listen for shutdown signals")?;
+    let app = App::new(config, bluetooth, Arc::clone(&shutdown_notify))
         .await
         .with_context(|| "Failed to initialize application")?;
 
@@ -26,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
     spawn_bluetooth(app);
     // Running it in the main thread, because
     // [tokio_udev::AsyncMonitorSocket] can not be sent between threads.
-    udev::handle_events_until_shutdown()
+    udev::handle_events_until_shutdown(shutdown_notify)
         .await
         .with_context(|| "Failed to handle device events")
 }

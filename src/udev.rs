@@ -1,23 +1,14 @@
-use std::{io, time::Duration};
+use std::{io, sync::Arc};
 
 use futures::StreamExt;
 use log::{error, info};
-use tokio::{
-    select,
-    signal::unix::{signal, SignalKind},
-};
+use tokio::{select, sync::Notify};
 use tokio_udev::{AsyncMonitorSocket, MonitorBuilder};
 
-pub async fn handle_events_until_shutdown() -> io::Result<()> {
+pub async fn handle_events_until_shutdown(shutdown_notify: Arc<Notify>) -> io::Result<()> {
     // TODO: match only required subsystems or tags.
     let mut socket: AsyncMonitorSocket = MonitorBuilder::new()?.listen()?.try_into()?;
-
-    let mut sigint = signal(SignalKind::interrupt())?;
-    let mut sigterm = signal(SignalKind::terminate())?;
-
-    let stop_info = |signal| info!("{signal} received: stopping device events handling");
     info!("Listening for device events...");
-
     loop {
         select! {
             result = socket.next() => {
@@ -28,23 +19,16 @@ pub async fn handle_events_until_shutdown() -> io::Result<()> {
                     },
                     None => {
                         error!("Device events stream closed. No more events will be handled");
-                        // Sleep forever, because returning will finish the main process.
-                        tokio::time::sleep(Duration::MAX).await;
+                        shutdown_notify.notified().await;
+                        break;
                     },
                     _ => {}
                 }
-
                 let event = result.unwrap().unwrap();
             },
-            _ = sigint.recv() => {
-                stop_info("SIGINT");
-                break;
-            },
-            _ = sigterm.recv() => {
-                stop_info("SIGTERM");
-                break;
-            },
+            _ = shutdown_notify.notified() => break,
         }
     }
+    info!("Device events listening stopped");
     Ok(())
 }

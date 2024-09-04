@@ -10,10 +10,15 @@ mod prefs;
 mod stdout_reader;
 mod utils;
 
-use std::sync::Arc;
+use std::{io, sync::Arc};
 
 use anyhow::Context;
-use tokio::sync::{Mutex, RwLock};
+use log::info;
+use tokio::{
+    select,
+    signal::unix::{signal, SignalKind},
+    sync::{Mutex, Notify, RwLock},
+};
 
 use bluetooth::{Bluetooth, DeviceHolder};
 use config::Config;
@@ -31,12 +36,17 @@ pub struct App {
     pub config: Config,
     pub prefs: SharedRwLock<PreferencesStorage>,
     pub bluetooth: Bluetooth,
+    pub shutdown_notify: Arc<Notify>,
 
     pub lounge_temp_monitor: DeviceHolder<MiTempMonitor, LoungeTempMonitor>,
 }
 
 impl App {
-    pub async fn new(config: Config, bluetooth: Bluetooth) -> anyhow::Result<Self> {
+    pub async fn new(
+        config: Config,
+        bluetooth: Bluetooth,
+        shutdown_notify: Arc<Notify>,
+    ) -> anyhow::Result<Self> {
         let prefs_path = config.data_dir.join(PREFERENCES_FILENAME);
         let prefs = Arc::new(RwLock::new(
             PreferencesStorage::open(prefs_path.clone())
@@ -61,8 +71,27 @@ impl App {
             config,
             prefs,
             bluetooth,
+            shutdown_notify,
 
             lounge_temp_monitor,
         })
     }
+}
+
+pub fn shutdown_notify() -> io::Result<Arc<Notify>> {
+    let notify: Arc<Notify> = Arc::default();
+    let notify_clone = Arc::clone(&notify);
+
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let shutdown_info = |signal| info!("{signal} received: notifying about shutdown...");
+
+    tokio::spawn(async move {
+        select! {
+            _ = sigint.recv() => shutdown_info("SIGINT"),
+            _ = sigterm.recv() => shutdown_info("SIGTERM"),
+        }
+        notify_clone.notify_waiters();
+    });
+    Ok(notify)
 }
