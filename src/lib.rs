@@ -6,6 +6,7 @@ pub mod udev;
 
 mod device;
 mod endpoint;
+mod hotspot;
 mod prefs;
 mod stdout_reader;
 mod utils;
@@ -23,6 +24,7 @@ use tokio::{
 use bluetooth::{Bluetooth, DeviceHolder};
 use config::Config;
 use device::{description::LoungeTempMonitor, mi_temp_monitor::MiTempMonitor};
+use hotspot::Hotspot;
 use prefs::PreferencesStorage;
 
 pub type SharedMutex<T> = Arc<Mutex<T>>;
@@ -38,6 +40,8 @@ pub struct App {
     pub bluetooth: Bluetooth,
     pub shutdown_notify: Arc<Notify>,
 
+    /// If hotspot configuration is not passed, it will be [None].
+    pub hotspot: Option<Hotspot>,
     pub lounge_temp_monitor: DeviceHolder<MiTempMonitor, LoungeTempMonitor>,
 }
 
@@ -59,6 +63,7 @@ impl App {
                 })?,
         ));
 
+        let hotspot = config.hotspot.clone().map(Hotspot::from);
         let lounge_temp_monitor = bluetooth::new_device(
             config
                 .bluetooth
@@ -73,6 +78,7 @@ impl App {
             bluetooth,
             shutdown_notify,
 
+            hotspot,
             lounge_temp_monitor,
         })
     }

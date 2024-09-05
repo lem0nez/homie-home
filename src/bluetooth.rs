@@ -7,14 +7,18 @@ use std::{
 };
 
 use anyhow::anyhow;
-use bluez_async::{AdapterInfo, BluetoothError, BluetoothSession, DeviceInfo, MacAddress};
+use bluez_async::{
+    AdapterInfo, BluetoothError, BluetoothEvent, BluetoothSession, DeviceEvent, DeviceInfo,
+    MacAddress,
+};
+use futures::StreamExt;
 use log::{error, info, warn};
-use tokio::sync::RwLock;
+use tokio::{sync::RwLock, task::AbortHandle};
 
 use crate::{
     config::{self, bluetooth_backoff},
     device::{BluetoothDevice, DeviceDescription},
-    SharedRwLock,
+    App, SharedRwLock,
 };
 
 pub type DeviceHolder<T, D> = SharedRwLock<Device<T, D>>;
@@ -105,14 +109,13 @@ impl<T: BluetoothDevice, D: DeviceDescription> Display for Device<T, D> {
 
 #[derive(Clone)]
 pub struct Bluetooth {
-    config: config::Bluetooth,
     session: BluetoothSession,
+    config: config::Bluetooth,
     adapter: Option<AdapterInfo>,
 }
 
 impl Bluetooth {
-    pub async fn new(config: config::Bluetooth) -> anyhow::Result<Self> {
-        let (_, session) = BluetoothSession::new().await?;
+    pub async fn new(session: BluetoothSession, config: config::Bluetooth) -> anyhow::Result<Self> {
         // If the server started on system boot, Bluetooth adapters may not be available yet.
         info!("Waiting for adapters...");
         let adapters = wait_for_adapters(&session).await?;
@@ -129,8 +132,8 @@ impl Bluetooth {
 
         info!("Initialized successfully");
         Ok(Self {
-            config,
             session,
+            config,
             adapter,
         })
     }
@@ -398,6 +401,45 @@ impl Bluetooth {
             error!("Unable to get the discovered devices list: {err}");
             err
         })
+    }
+}
+
+/// Handle all events from all adapters.
+pub async fn spawn_global_event_handler(
+    session: BluetoothSession,
+    app: App,
+) -> Result<AbortHandle, BluetoothError> {
+    let mut event_stream = session.event_stream().await?;
+    Ok(tokio::spawn(async move {
+        info!("Global event handler started");
+        while let Some(event) = event_stream.next().await {
+            handle_event(event, &session, &app).await
+        }
+        error!("Event stream of the global handler is closed");
+    })
+    .abort_handle())
+}
+
+async fn handle_event(event: BluetoothEvent, session: &BluetoothSession, app: &App) {
+    if let BluetoothEvent::Device { id, event } = event {
+        match session.get_device_info(&id).await {
+            Ok(device) => {
+                if let DeviceEvent::Connected { connected } = event {
+                    if let Some(hotspot) = &app.hotspot {
+                        if app.prefs.read().await.hotspot_handling_enabled
+                            && hotspot.is_hotspot(&device)
+                        {
+                            if connected {
+                                hotspot.disconnect_from_wifi().await
+                            } else {
+                                hotspot.connect_to_wifi().await
+                            };
+                        }
+                    }
+                }
+            }
+            Err(e) => error!("Failed to get info about handled device with ID {id}: {e}"),
+        }
     }
 }
 

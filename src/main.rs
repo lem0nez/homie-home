@@ -2,10 +2,15 @@ use std::{io, sync::Arc};
 
 use actix_web::{web, HttpServer};
 use anyhow::Context;
+use bluez_async::BluetoothSession;
 use env_logger::Env;
 use log::{info, warn};
 
-use rpi_server::{bluetooth::Bluetooth, config::Config, graphql, rest, shutdown_notify, udev, App};
+use rpi_server::{
+    bluetooth::{self, Bluetooth},
+    config::Config,
+    graphql, rest, shutdown_notify, udev, App,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -15,7 +20,11 @@ async fn main() -> anyhow::Result<()> {
         .parse_env(Env::new().default_filter_or(&config.log_filter))
         .init();
 
-    let bluetooth = Bluetooth::new(config.bluetooth.clone())
+    // This session can be cloned and shared between different [Bluetooth] instances.
+    let (_, bluetooth_session) = BluetoothSession::new()
+        .await
+        .with_context(|| "Failed to establish communication with BlueZ")?;
+    let bluetooth = Bluetooth::new(bluetooth_session.clone(), config.bluetooth.clone())
         .await
         .with_context(|| "Failed to initialize Bluetooth")?;
     let shutdown_notify =
@@ -25,7 +34,10 @@ async fn main() -> anyhow::Result<()> {
         .with_context(|| "Failed to initialize application")?;
 
     spawn_http_server(app.clone()).with_context(|| "Failed to start the HTTP server")?;
-    spawn_bluetooth(app);
+    spawn_bluetooth(app.clone());
+    bluetooth::spawn_global_event_handler(bluetooth_session, app)
+        .await
+        .with_context(|| "Failed to start the Bluetooth event handler")?;
     // Running it in the main thread, because
     // [tokio_udev::AsyncMonitorSocket] can not be sent between threads.
     udev::handle_events_until_shutdown(shutdown_notify)
