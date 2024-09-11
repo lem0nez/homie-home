@@ -6,7 +6,6 @@ pub mod udev;
 
 mod device;
 mod endpoint;
-mod hotspot;
 mod prefs;
 mod stdout_reader;
 mod utils;
@@ -23,8 +22,7 @@ use tokio::{
 
 use bluetooth::{Bluetooth, DeviceHolder};
 use config::Config;
-use device::{description::LoungeTempMonitor, mi_temp_monitor::MiTempMonitor};
-use hotspot::Hotspot;
+use device::{description::LoungeTempMonitor, hotspot::Hotspot, mi_temp_monitor::MiTempMonitor};
 use prefs::PreferencesStorage;
 
 pub type SharedMutex<T> = Arc<Mutex<T>>;

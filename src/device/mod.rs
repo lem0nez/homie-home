@@ -1,4 +1,5 @@
 pub mod description;
+pub mod hotspot;
 pub mod mi_temp_monitor;
 
 use bluez_async::{BluetoothError, BluetoothSession, DeviceInfo};
