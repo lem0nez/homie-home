@@ -14,7 +14,8 @@ use rpi_server::{
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config = Config::new().with_context(|| "Failed to obtain the server configuration")?;
+    let config =
+        Config::new().with_context(|| "Failed to initialize the server from configuration")?;
     env_logger::builder()
         .format_timestamp(None)
         .parse_env(Env::new().default_filter_or(&config.log_filter))
