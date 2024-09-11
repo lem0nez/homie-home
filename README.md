@@ -35,6 +35,8 @@ server_address: 0.0.0.0
 server_port: 80
 # Log filtering. Can be: DEBUG, INFO, WARN, ERROR or another value
 log_filter: INFO
+# Directory where to store user preferences and database.
+data_dir: /var/lib/rpi-server
 # If string is specified, requests to the server will require
 # authentication with this Bearer Token
 access_token: null
