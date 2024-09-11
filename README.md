@@ -41,10 +41,7 @@ access_token: null
 # [REQUIRED] Directory with static files to host on "/"
 site_path: /path/to/site
 
-# ---------------------------- #
-# Bluetooth-related parameters #
-# ---------------------------- #
-
+# Bluetooth-related parameters
 bluetooth:
   # How long to perform the discovery
   discovery_seconds: 5
@@ -52,4 +49,17 @@ bluetooth:
   adapter_name: null
   # [REQUIRED] MAC address of Xiaomi Mi Temperature and Humidity Monitor 2 (LYWSD03MMC)
   lounge_temp_mac_address: FF:00:FF:00:FF:00
+
+# [OPTIONAL] Hotspot information.
+# If this section is not null, all child parameters must be defined.
+#
+# Hotspot is a device that shares the internet using Wi-Fi. But the same device can connect to
+# Raspberry Pi via Bluetooth, for example, to stream the audio. And if the same device will do these
+# two operations simultaneously, stability of the audio streaming will be bad. So, we temporary
+# disconnect from the Wi-Fi access point while the device connected to us via Bluetooth.
+hotspot:
+  # [REQUIRED] NetworkManager connection. Can be one of: ID (name), UUID or path.
+  connection: AP
+  # [REQUIRED] Bluetooth MAC address of the hotpost device.
+  bluetooth_mac_address: FF:00:FF:00:FF:00
 ```
