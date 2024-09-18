@@ -1,6 +1,7 @@
 pub mod bluetooth;
 pub mod config;
 pub mod graphql;
+pub mod logger;
 pub mod rest;
 pub mod udev;
 

@@ -23,6 +23,12 @@ To run the server you must set some required parameters. It can be achieved in t
 1. By settings environment variables with the `RPI_` prefix.
 2. By putting values inside the `/etc/rpi-server.yaml` configuration file.
 
+If the server successfully started, you can view logs using the following command:
+
+```
+$ journalctl --identifier rpi-server
+```
+
 ### Configuration
 Required parameters described with the `[REQUIRED]` keyword, others are optional.
 
@@ -33,8 +39,8 @@ Required parameters described with the `[REQUIRED]` keyword, others are optional
 server_address: 0.0.0.0
 # Port which used to bind the server
 server_port: 80
-# Log filtering. Can be: DEBUG, INFO, WARN, ERROR or another value
-log_filter: INFO
+# Log level filter. Can be one of: OFF, ERROR, WARN, INFO, DEBUG or TRACE
+log_level: INFO
 # Directory where to store user preferences and database.
 data_dir: /var/lib/rpi-server
 # If string is specified, requests to the server will require

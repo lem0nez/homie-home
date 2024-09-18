@@ -3,23 +3,21 @@ use std::{io, sync::Arc};
 use actix_web::{web, HttpServer};
 use anyhow::Context;
 use bluez_async::BluetoothSession;
-use env_logger::Env;
 use log::{info, warn};
 
 use rpi_server::{
     bluetooth::{self, Bluetooth},
     config::Config,
-    graphql, rest, shutdown_notify, udev, App,
+    graphql,
+    logger::AppLogger,
+    rest, shutdown_notify, udev, App,
 };
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config =
         Config::new().with_context(|| "Failed to initialize the server from configuration")?;
-    env_logger::builder()
-        .format_timestamp(None)
-        .parse_env(Env::new().default_filter_or(&config.log_filter))
-        .init();
+    AppLogger::install(config.log_level).with_context(|| "Failed to install the global logger")?;
 
     // This session can be cloned and shared between different [Bluetooth] instances.
     let (_, bluetooth_session) = BluetoothSession::new()

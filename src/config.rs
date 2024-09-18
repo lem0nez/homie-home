@@ -4,6 +4,7 @@ use figment::{
     providers::{Env, Format, Yaml},
     Figment,
 };
+use log::LevelFilter;
 use serde::Deserialize;
 use serde_valid::Validate;
 
@@ -15,7 +16,7 @@ const ENV_PREFIX: &str = "RPI_";
 pub struct Config {
     pub server_address: String,
     pub server_port: u16,
-    pub log_filter: String,
+    pub log_level: LevelFilter,
     /// Token to access the REST API endpoints.
     /// Set to [None] if authentication is not required.
     pub access_token: Option<String>,
@@ -35,7 +36,7 @@ impl Default for Config {
         Self {
             server_address: "0.0.0.0".to_string(),
             server_port: 80,
-            log_filter: "INFO".to_string(),
+            log_level: LevelFilter::Info,
             access_token: None,
             data_dir: "/var/lib/rpi-server".into(),
             site_path: PathBuf::default(),
@@ -115,13 +116,14 @@ pub mod bluetooth_backoff {
 }
 
 mod validator {
-    use serde_valid::validation::Error;
     use std::{
         fs::{self, Permissions},
         os::unix::fs::PermissionsExt,
         path::Path,
         str::FromStr,
     };
+
+    use serde_valid::validation::Error;
 
     pub fn path_exists(path: &Path) -> Result<(), Error> {
         if path.as_os_str().is_empty() {
