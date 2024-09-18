@@ -34,19 +34,25 @@ strum = { version = "0.26.3", features = ["derive"] }
 
 anyhow = "1.0.86"
 backoff = { version = "0.4.0", features = ["tokio"] }
-env_logger = "0.11.3"
+env_logger = { version = "0.11.3", default-features = false }
 log = "0.4.21"
 thiserror = "1.0.63"
 
 # To host a static site.
 actix-files = "0.6.6"
-actix-web = "4.7.0"
+actix-web = { version = "4.7.0", features = [
+    "cookies",
+    "macros",
+], default-features = false }
 actix-web-httpauth = "0.8.1"
-async-graphql = { version = "7.0.7", features = ["chrono"] }
+async-graphql = { version = "7.0.7", features = [
+    "chrono",
+    "graphiql",
+], default-features = false }
 async-graphql-actix-web = "7.0.7"
 
 bluez-async = "0.7.2"
-chrono = "0.4.38"
+chrono = { version = "0.4.38", default-features = false }
 figment = { version = "0.10.19", features = ["env", "yaml"] }
 tokio-udev = "0.9.1"
 # We are using Bluetooth service and characteristic UUIDs.
