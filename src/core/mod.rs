@@ -1,3 +1,5 @@
+pub mod stdout_reader;
+
 pub fn round_f32(number: f32, precision: i32) -> f32 {
     let power = 10_f32.powi(precision);
     (number * power).round() / power

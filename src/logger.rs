@@ -7,21 +7,8 @@ impl AppLogger {
     pub fn install(level_filter: LevelFilter) -> anyhow::Result<()> {
         let logger = Box::new(Self(JournalLog::new()?));
         log::set_boxed_logger(logger)?;
-        Ok(log::set_max_level(level_filter))
-    }
-
-    fn make_message_prefix(module_path: &str) -> String {
-        let crate_name: &'static str = env!("CARGO_CRATE_NAME");
-        if module_path == crate_name {
-            String::new()
-        } else {
-            format!(
-                "<{}> ",
-                module_path
-                    .strip_prefix(&(crate_name.to_string() + "::"))
-                    .unwrap_or(module_path)
-            )
-        }
+        log::set_max_level(level_filter);
+        Ok(())
     }
 }
 
@@ -38,7 +25,7 @@ impl Log for AppLogger {
                     "{}{}",
                     record
                         .module_path()
-                        .map(Self::make_message_prefix)
+                        .map(make_message_prefix)
                         .unwrap_or_default(),
                     record.args()
                 ))
@@ -51,4 +38,18 @@ impl Log for AppLogger {
     }
 
     fn flush(&self) {}
+}
+
+fn make_message_prefix(module_path: &str) -> String {
+    let crate_name: &'static str = env!("CARGO_CRATE_NAME");
+    if module_path == crate_name {
+        String::new()
+    } else {
+        format!(
+            "<{}> ",
+            module_path
+                .strip_prefix(&(crate_name.to_string() + "::"))
+                .unwrap_or(module_path)
+        )
+    }
 }

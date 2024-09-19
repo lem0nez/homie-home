@@ -23,7 +23,7 @@ To run the server you must set some required parameters. It can be achieved in t
 1. By settings environment variables with the `RPI_` prefix.
 2. By putting values inside the `/etc/rpi-server.yaml` configuration file.
 
-If the server successfully started, you can view logs using the following command:
+If the server started successfully, you can view logs using the following command:
 
 ```
 $ journalctl --identifier rpi-server

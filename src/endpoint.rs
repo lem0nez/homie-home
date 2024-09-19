@@ -16,9 +16,7 @@ use serde::Deserialize;
 use tokio::process::Command;
 
 use crate::{
-    graphql::{GraphQLPlayground, GraphQLSchema},
-    rest::auth_validator,
-    stdout_reader::StdoutReader,
+    core::stdout_reader::StdoutReader, graphql::{GraphQLPlayground, GraphQLSchema}, rest::auth_validator
 };
 
 const BACKUP_MIME_TYPE: &str = "application/x-tar";

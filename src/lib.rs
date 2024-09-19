@@ -5,11 +5,10 @@ pub mod logger;
 pub mod rest;
 pub mod udev;
 
+mod core;
 mod device;
 mod endpoint;
 mod prefs;
-mod stdout_reader;
-mod utils;
 
 use std::{io, sync::Arc};
 
