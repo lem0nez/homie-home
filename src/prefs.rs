@@ -1,7 +1,10 @@
-use std::{fs::Permissions, ops::Deref, os::unix::fs::PermissionsExt, path::PathBuf};
+use std::{fs::Permissions, io, ops::Deref, os::unix::fs::PermissionsExt, path::PathBuf};
 
+use futures::TryFutureExt;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
+
+use crate::App;
 
 #[derive(Clone, Copy, Deserialize, Serialize, async_graphql::SimpleObject)]
 pub struct Preferences {
@@ -17,6 +20,19 @@ impl Default for Preferences {
             hotspot_handling_enabled: false,
         }
     }
+}
+
+#[derive(async_graphql::InputObject)]
+pub struct PreferencesUpdate {
+    hotspot_handling_enabled: Option<bool>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PreferencesUpdateError {
+    #[error("failed to serialize preferences into YAML: {0}")]
+    SerializationFailed(serde_yaml::Error),
+    #[error("failed to save preferences to file: {0}")]
+    FailedToSave(io::Error),
 }
 
 pub struct PreferencesStorage {
@@ -42,6 +58,24 @@ impl PreferencesStorage {
             preferences,
             yaml_file,
         })
+    }
+
+    pub async fn update(
+        &mut self,
+        app: App,
+        update: PreferencesUpdate,
+    ) -> Result<(), PreferencesUpdateError> {
+        if let Some(hotspot_handling_enabled) = update.hotspot_handling_enabled {
+            self.preferences.hotspot_handling_enabled = hotspot_handling_enabled;
+        }
+
+        fs::write(
+            &self.yaml_file,
+            serde_yaml::to_string(&self.preferences)
+                .map_err(PreferencesUpdateError::SerializationFailed)?,
+        )
+        .map_err(PreferencesUpdateError::FailedToSave)
+        .await
     }
 }
 
