@@ -5,7 +5,7 @@ use actix_web_httpauth::extractors::{
     bearer::{self, BearerAuth},
     AuthenticationError,
 };
-use log::{info, warn};
+use log::{debug, warn};
 
 use crate::{
     endpoint,
@@ -40,7 +40,7 @@ pub async fn auth_validator(
     if let Some(addr) = request.peer_addr() {
         let ip = addr.ip();
         if ip == Ipv4Addr::LOCALHOST || ip == Ipv6Addr::LOCALHOST {
-            info!("Authentication skipped, because client's address is localhost");
+            debug!("Authentication skipped, because client's address is localhost");
             return Ok(request);
         }
     }
