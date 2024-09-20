@@ -8,6 +8,7 @@ pub mod udev;
 mod core;
 mod device;
 mod endpoint;
+mod files;
 mod prefs;
 
 use std::{io, sync::Arc};
@@ -23,12 +24,11 @@ use tokio::{
 use bluetooth::{Bluetooth, DeviceHolder};
 use config::Config;
 use device::{description::LoungeTempMonitor, hotspot::Hotspot, mi_temp_monitor::MiTempMonitor};
+use files::{BaseDir, Data};
 use prefs::PreferencesStorage;
 
 pub type SharedMutex<T> = Arc<Mutex<T>>;
 pub type SharedRwLock<T> = Arc<RwLock<T>>;
-
-const PREFERENCES_FILENAME: &str = "prefs.yaml";
 
 /// Main object to access all the stuff: configuration, services, devices etc.
 #[derive(Clone)]
@@ -49,7 +49,7 @@ impl App {
         bluetooth: Bluetooth,
         shutdown_notify: Arc<Notify>,
     ) -> anyhow::Result<Self> {
-        let prefs_path = config.data_dir.join(PREFERENCES_FILENAME);
+        let prefs_path = config.data_dir.path(Data::Preferences);
         let prefs = Arc::new(RwLock::new(
             PreferencesStorage::open(prefs_path.clone())
                 .await

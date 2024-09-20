@@ -41,13 +41,14 @@ server_address: 0.0.0.0
 server_port: 80
 # Log level filter. Can be one of: OFF, ERROR, WARN, INFO, DEBUG or TRACE
 log_level: INFO
-# Directory where to store user preferences and database.
+# [REQUIRED] Directory with read-only resources. It has the following structure:
+#   site/ - directory with static files to host on "/"
+assets_dir: /path/to/assets
+# Directory where to store user preferences, database and other data
 data_dir: /var/lib/rpi-server
 # If string is specified, requests to the server will require
 # authentication with this Bearer Token
 access_token: null
-# [REQUIRED] Directory with static files to host on "/"
-site_path: /path/to/site
 
 # Bluetooth-related parameters
 bluetooth:

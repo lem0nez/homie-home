@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use figment::{
     providers::{Env, Format, Yaml},
@@ -7,6 +7,8 @@ use figment::{
 use log::LevelFilter;
 use serde::Deserialize;
 use serde_valid::Validate;
+
+use crate::files::{AssetsDir, DataDir};
 
 const YAML_FILE_LOCATION: &str = "/etc/rpi-server.yaml";
 const ENV_PREFIX: &str = "RPI_";
@@ -17,14 +19,13 @@ pub struct Config {
     pub server_address: String,
     pub server_port: u16,
     pub log_level: LevelFilter,
+    #[validate]
+    pub assets_dir: AssetsDir,
+    #[validate]
+    pub data_dir: DataDir,
     /// Token to access the REST API endpoints.
     /// Set to [None] if authentication is not required.
     pub access_token: Option<String>,
-    /// A directory where to store all the data.
-    #[validate(custom = validator::directory_writable)]
-    pub data_dir: PathBuf,
-    #[validate(custom = validator::path_exists)]
-    pub site_path: PathBuf,
     #[validate]
     pub bluetooth: Bluetooth,
     /// Information about a hosting device to which the Raspberry Pi connects to.
@@ -37,9 +38,9 @@ impl Default for Config {
             server_address: "0.0.0.0".to_string(),
             server_port: 80,
             log_level: LevelFilter::Info,
+            assets_dir: AssetsDir::unset(),
+            data_dir: Path::new("/var/lib/rpi-server").into(),
             access_token: None,
-            data_dir: "/var/lib/rpi-server".into(),
-            site_path: PathBuf::default(),
             bluetooth: Bluetooth::default(),
             hotspot: None,
         }
@@ -116,52 +117,8 @@ pub mod bluetooth_backoff {
 }
 
 mod validator {
-    use std::{
-        fs::{self, Permissions},
-        os::unix::fs::PermissionsExt,
-        path::Path,
-        str::FromStr,
-    };
-
     use serde_valid::validation::Error;
-
-    pub fn path_exists(path: &Path) -> Result<(), Error> {
-        if path.as_os_str().is_empty() {
-            Err(Error::Custom("path must be set".to_string()))
-        } else if !path.exists() {
-            Err(Error::Custom("path does not exist".to_string()))
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn directory_writable(path: &Path) -> Result<(), Error> {
-        if path.exists() {
-            if path.is_file() {
-                return Err(Error::Custom(
-                    "path must points at a directory, not a file".to_string(),
-                ));
-            }
-            let metadata = path.metadata().map_err(|err| {
-                Error::Custom(format!(
-                    "unable to query metadata about the directory ({err})"
-                ))
-            })?;
-            if metadata.permissions().readonly() {
-                return Err(Error::Custom("directory is read-only".to_string()));
-            }
-        } else {
-            fs::create_dir_all(path)
-                .map_err(|err| Error::Custom(format!("unable to create the directory ({err})")))?;
-            // Only owner can read and write the directory.
-            fs::set_permissions(path, Permissions::from_mode(0o700)).map_err(|err| {
-                Error::Custom(format!(
-                    "unable to change the directory permissions ({err})"
-                ))
-            })?;
-        }
-        Ok(())
-    }
+    use std::str::FromStr;
 
     pub fn bluetooth_mac(val: &str) -> Result<(), Error> {
         if val.is_empty() {

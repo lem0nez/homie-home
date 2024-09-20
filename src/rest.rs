@@ -7,7 +7,11 @@ use actix_web_httpauth::extractors::{
 };
 use log::{info, warn};
 
-use crate::{endpoint, App};
+use crate::{
+    endpoint,
+    files::{Asset, BaseDir},
+    App,
+};
 
 pub fn configure_service(service_config: &mut ServiceConfig, app: &App) {
     service_config
@@ -22,7 +26,7 @@ pub fn configure_service(service_config: &mut ServiceConfig, app: &App) {
         .service(endpoint::poweroff)
         // Host the static files.
         .service(
-            actix_files::Files::new("/", &app.config.site_path)
+            actix_files::Files::new("/", &*app.config.assets_dir.path(Asset::Site))
                 // Be able to access the sub-directories.
                 .show_files_listing()
                 .index_file("index.html"),
