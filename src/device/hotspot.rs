@@ -80,7 +80,7 @@ impl Hotspot {
     }
 }
 
-// TODO: check the current connection state before proceeding.
+// TODO: check the current connection state using neli-wifi before proceeding.
 fn spawn_nmcli(action: NetworkManagerAction, connection: String) -> JoinHandle<()> {
     tokio::spawn(async move {
         let action_str = action.to_string();
