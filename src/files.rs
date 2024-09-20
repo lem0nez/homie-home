@@ -112,7 +112,7 @@ impl Validate for PathEntry {
         let path_str = self.path.to_string_lossy();
         let err = |message| {
             Err(validation::Errors::NewType(vec![
-                validation::Error::Custom(format!("{} \"{path_str}\": {message}", self.kind)),
+                validation::Error::Custom(format!("{} '{path_str}': {message}", self.kind)),
             ]))
         };
 
