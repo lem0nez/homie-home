@@ -34,12 +34,12 @@ async fn main() -> anyhow::Result<()> {
 
     spawn_http_server(app.clone()).with_context(|| "Failed to start the HTTP server")?;
     spawn_bluetooth(app.clone());
-    bluetooth::spawn_global_event_handler(bluetooth_session, app)
+    bluetooth::spawn_global_event_handler(bluetooth_session, app.clone())
         .await
         .with_context(|| "Failed to start the Bluetooth event handler")?;
     // Running it in the main thread, because
     // [tokio_udev::AsyncMonitorSocket] can not be sent between threads.
-    udev::handle_events_until_shutdown(shutdown_notify)
+    udev::handle_events_until_shutdown(shutdown_notify, app.piano)
         .await
         .with_context(|| "Failed to handle device events")
 }

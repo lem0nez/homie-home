@@ -3,12 +3,12 @@ Primarily this project written to cover my own needs, but you can find something
 yourself.
 
 ## Cross-compilation on Debian-based systems
-First you need to install the build dependencies for Bluetooth and Udev libraries.
+First you need to install development libraries for ALSA, D-Bus and Udev.
 
 ```
 # dpkg --add-architecture arm64
 # apt update
-# apt install libdbus-1-dev:arm64 libudev-dev:arm64
+# apt install libasound2-dev:arm64 libdbus-1-dev:arm64 libudev-dev:arm64
 ```
 
 After that you can build the binary.
@@ -71,4 +71,9 @@ hotspot:
   connection: AP
   # [REQUIRED] Bluetooth MAC address of the hotpost device.
   bluetooth_mac_address: FF:00:FF:00:FF:00
+
+# Piano information
+piano:
+  # [REQUIRED] Identifier of an audio device
+  device_id: PIANO
 ```

@@ -30,6 +30,8 @@ pub struct Config {
     pub bluetooth: Bluetooth,
     /// Information about a hosting device to which the Raspberry Pi connects to.
     pub hotspot: Option<Hotspot>,
+    #[validate]
+    pub piano: Piano,
 }
 
 impl Default for Config {
@@ -43,6 +45,7 @@ impl Default for Config {
             access_token: None,
             bluetooth: Bluetooth::default(),
             hotspot: None,
+            piano: Piano::default(),
         }
     }
 }
@@ -75,6 +78,12 @@ pub struct Hotspot {
     pub connection: String,
     #[validate(custom = validator::bluetooth_mac)]
     pub bluetooth_mac_address: String,
+}
+
+#[derive(Clone, Default, Deserialize, Validate)]
+pub struct Piano {
+    #[validate(min_length = 1, message = "must not be empty")]
+    pub device_id: String,
 }
 
 impl Config {

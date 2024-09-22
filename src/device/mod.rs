@@ -1,6 +1,7 @@
 pub mod description;
 pub mod hotspot;
 pub mod mi_temp_monitor;
+pub mod piano;
 
 use bluez_async::{BluetoothError, BluetoothSession, DeviceInfo};
 use std::{fmt::Debug, future::Future};

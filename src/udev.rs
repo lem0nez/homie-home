@@ -5,9 +5,20 @@ use log::{error, info};
 use tokio::{select, sync::Notify};
 use tokio_udev::{AsyncMonitorSocket, MonitorBuilder};
 
-pub async fn handle_events_until_shutdown(shutdown_notify: Arc<Notify>) -> io::Result<()> {
-    // TODO: match only required subsystems or tags.
-    let mut socket: AsyncMonitorSocket = MonitorBuilder::new()?.listen()?.try_into()?;
+use crate::device::piano::Piano;
+
+const MONITOR_SUBSYSTEMS: [&str; 1] = ["sound"];
+
+pub async fn handle_events_until_shutdown(
+    shutdown_notify: Arc<Notify>,
+    piano: Piano,
+) -> io::Result<()> {
+    let mut monitor_builder = MonitorBuilder::new()?;
+    for subsystem in MONITOR_SUBSYSTEMS {
+        monitor_builder = monitor_builder.match_subsystem(subsystem)?;
+    }
+    let mut socket: AsyncMonitorSocket = monitor_builder.listen()?.try_into()?;
+
     info!("Listening for device events...");
     loop {
         select! {
@@ -24,7 +35,9 @@ pub async fn handle_events_until_shutdown(shutdown_notify: Arc<Notify>) -> io::R
                     },
                     _ => {}
                 }
+
                 let event = result.unwrap().unwrap();
+                piano.handle_udev_event(&event).await;
             },
             _ = shutdown_notify.notified() => break,
         }

@@ -23,7 +23,9 @@ use tokio::{
 
 use bluetooth::{Bluetooth, DeviceHolder};
 use config::Config;
-use device::{description::LoungeTempMonitor, hotspot::Hotspot, mi_temp_monitor::MiTempMonitor};
+use device::{
+    description::LoungeTempMonitor, hotspot::Hotspot, mi_temp_monitor::MiTempMonitor, piano::Piano,
+};
 use files::{BaseDir, Data};
 use prefs::PreferencesStorage;
 
@@ -40,6 +42,7 @@ pub struct App {
 
     /// If hotspot configuration is not passed, it will be [None].
     pub hotspot: Option<Hotspot>,
+    pub piano: Piano,
     pub lounge_temp_monitor: DeviceHolder<MiTempMonitor, LoungeTempMonitor>,
 }
 
@@ -70,6 +73,10 @@ impl App {
                 .expect("server configuration is not validated"),
         );
 
+        let piano = Piano::from(config.piano.clone());
+        let piano_clone = piano.clone();
+        tokio::spawn(async move { piano_clone.init_if_device_present().await });
+
         Ok(Self {
             config,
             prefs,
@@ -77,6 +84,7 @@ impl App {
             shutdown_notify,
 
             hotspot,
+            piano,
             lounge_temp_monitor,
         })
     }
