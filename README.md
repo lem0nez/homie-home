@@ -1,6 +1,7 @@
 # Raspberry Pi server
 Primarily this project written to cover my own needs, but you can find something useful for
-yourself.
+yourself. Also it has the [React frontend](https://github.com/lem0nez/rpi-control) which
+written mostly by AI.
 
 ## Cross-compilation on Debian-based systems
 First you need to install development libraries for ALSA, D-Bus and Udev.
