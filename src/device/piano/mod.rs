@@ -103,8 +103,10 @@ impl Piano {
     }
 
     fn find_audio_device(&self) -> Option<cpal::Device> {
+        info!("Getting all audio devices...");
         match cpal::default_host().devices() {
             Ok(devices) => {
+                info!("Audio devices list is retrieved");
                 for device in devices {
                     match device.name() {
                         Ok(name) => {
@@ -135,13 +137,11 @@ impl Piano {
                 if let Err(e) = match_result {
                     error!("Failed to apply filters to the udev piano scanner: {e}");
                 } else {
-                    info!("Scanning /sys for the piano...");
                     match enumerator.scan_devices() {
                         Ok(mut devices) => {
-                            info!("Scan completed");
                             return devices.next().map(|device| device.devpath().to_os_string());
                         }
-                        Err(e) => error!("Scan failed: {e}"),
+                        Err(e) => error!("Failed to scan /sys for the piano: {e}"),
                     }
                 }
             }
