@@ -21,7 +21,7 @@ use tokio::{
     sync::{Mutex, Notify, RwLock},
 };
 
-use bluetooth::{Bluetooth, DeviceHolder};
+use bluetooth::{A2dpSourceHandler, Bluetooth, DeviceHolder};
 use config::Config;
 use device::{
     description::LoungeTempMonitor, hotspot::Hotspot, mi_temp_monitor::MiTempMonitor, piano::Piano,
@@ -38,6 +38,7 @@ pub struct App {
     pub config: Config,
     pub prefs: SharedRwLock<PreferencesStorage>,
     pub bluetooth: Bluetooth,
+    pub a2dp_source_handler: A2dpSourceHandler,
     pub shutdown_notify: Arc<Notify>,
 
     /// If hotspot configuration is not passed, it will be [None].
@@ -50,6 +51,7 @@ impl App {
     pub async fn new(
         config: Config,
         bluetooth: Bluetooth,
+        a2dp_source_handler: A2dpSourceHandler,
         shutdown_notify: Arc<Notify>,
     ) -> anyhow::Result<Self> {
         let prefs_path = config.data_dir.path(Data::Preferences);
@@ -73,14 +75,20 @@ impl App {
                 .expect("server configuration is not validated"),
         );
 
-        let piano = Piano::from(config.piano.clone());
+        let piano = Piano::new(config.piano.clone(), a2dp_source_handler.clone());
         let piano_clone = piano.clone();
-        tokio::spawn(async move { piano_clone.init_if_device_present().await });
+        tokio::spawn(async move {
+            // Initialize the piano if device present.
+            if let Some(devpath) = piano_clone.find_devpath() {
+                piano_clone.init_if_not_done(devpath).await;
+            }
+        });
 
         Ok(Self {
             config,
             prefs,
             bluetooth,
+            a2dp_source_handler,
             shutdown_notify,
 
             hotspot,

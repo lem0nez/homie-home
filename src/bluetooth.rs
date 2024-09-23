@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fmt::{self, Display, Formatter},
     marker::PhantomData,
     mem,
@@ -8,12 +9,13 @@ use std::{
 
 use anyhow::anyhow;
 use bluez_async::{
-    AdapterInfo, BluetoothError, BluetoothEvent, BluetoothSession, DeviceEvent, DeviceInfo,
-    MacAddress,
+    AdapterInfo, BluetoothError, BluetoothEvent, BluetoothSession, DeviceEvent, DeviceId,
+    DeviceInfo, MacAddress,
 };
 use futures::StreamExt;
 use log::{error, info, warn};
 use tokio::{sync::RwLock, task::AbortHandle};
+use uuid::Uuid;
 
 use crate::{
     config::{self, bluetooth_backoff},
@@ -404,6 +406,77 @@ impl Bluetooth {
     }
 }
 
+#[derive(Clone)]
+pub struct A2dpSourceHandler {
+    /// Currently connected devices which support A2DP source.
+    connected_devices: SharedRwLock<HashSet<DeviceId>>,
+}
+
+impl A2dpSourceHandler {
+    pub async fn new(session: &BluetoothSession) -> Result<Self, BluetoothError> {
+        let connected_devices: HashSet<_> = session
+            .get_devices()
+            .await?
+            .into_iter()
+            .filter(|device| device.connected && Self::has_a2dp_source(device))
+            .map(|device| device.id)
+            .collect();
+        Ok(Self {
+            connected_devices: Arc::new(RwLock::new(connected_devices)),
+        })
+    }
+
+    pub async fn has_connected(&self) -> bool {
+        !self.connected_devices.read().await.is_empty()
+    }
+
+    /// Returns `true` if A2DP source device connected / disconnected.
+    async fn handle_connection_change(&self, device: &DeviceInfo, connected: bool) -> bool {
+        let mut updated = false;
+        if connected {
+            if Self::has_a2dp_source(device)
+                && self
+                    .connected_devices
+                    .write()
+                    .await
+                    .insert(device.id.clone())
+            {
+                info!("A2DP source connected: {}", device_short_info(device));
+                updated = true;
+            }
+        } else if self.connected_devices.write().await.remove(&device.id) {
+            info!("A2DP source disconnected: {}", device_short_info(device));
+            updated = true;
+        }
+        updated
+    }
+
+    #[allow(clippy::unusual_byte_groupings)]
+    fn has_a2dp_source(device: &DeviceInfo) -> bool {
+        const A2DP_SOURCE_SERVICE_UUID: Uuid =
+            Uuid::from_u128(0x0000110a_0000_1000_8000_00805f9b34fb);
+        // Assuming they are support A2DP source.
+        // Class has the following format: MAJOR_SERVICE_CLASS (11 bits),
+        // MAJOR_DEVICE_CLASS (5 bits), MINOR_DEVICE_CLASS (6 bits), FORMAT_TYPE (2 bits).
+        // See https://www.ampedrftech.com/datasheets/cod_definition.pdf for reference.
+        const APPLICABLE_MAJOR_DEVICE_CLASSES: [u32; 2] = [
+            0b00000000000_00001_000000_00, // Computer
+            0b00000000000_00010_000000_00, // Phone
+        ];
+
+        // Not using `services_resolved` flag, because it's not reliable.
+        if !device.services.is_empty() {
+            return device.services.contains(&A2DP_SOURCE_SERVICE_UUID);
+        }
+        if let Some(class) = device.class {
+            // We need to exactly compare all bits in the MAJOR_DEVICE_CLASS.
+            return APPLICABLE_MAJOR_DEVICE_CLASSES
+                .contains(&(class & 0b00000000000_11111_000000_00));
+        }
+        false
+    }
+}
+
 /// Handle all events from all adapters.
 pub async fn spawn_global_event_handler(
     session: BluetoothSession,
@@ -425,6 +498,17 @@ async fn handle_event(event: BluetoothEvent, session: &BluetoothSession, app: &A
         match session.get_device_info(&id).await {
             Ok(device) => {
                 if let DeviceEvent::Connected { connected } = event {
+                    if app
+                        .a2dp_source_handler
+                        .handle_connection_change(&device, connected)
+                        .await
+                    {
+                        // If A2DP source connected, audio device may become busy and piano can't
+                        // use this device no more.
+                        // If A2DP source disconnected, piano should take it for use again.
+                        app.piano.update_audio_device_if_applicable().await;
+                    }
+
                     if let Some(hotspot) = &app.hotspot {
                         if app.prefs.read().await.hotspot_handling_enabled
                             && hotspot.is_hotspot(&device)

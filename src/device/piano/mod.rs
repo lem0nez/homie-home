@@ -3,7 +3,7 @@ use std::{ffi::OsString, sync::Arc};
 use cpal::traits::{DeviceTrait, HostTrait};
 use log::{error, info, warn};
 
-use crate::{config, SharedRwLock};
+use crate::{bluetooth::A2dpSourceHandler, config, SharedRwLock};
 
 /// Comparing to `hw`, `plughw` uses software conversions at the driver level
 /// (re-buffering, sample rate conversion, etc). Also the driver author has
@@ -18,28 +18,18 @@ pub enum HandledPianoEvent {
 #[derive(Clone)]
 pub struct Piano {
     config: config::Piano,
+    /// Used to check whether an audio device is in use by a Bluetooth device.
+    a2dp_source_handler: A2dpSourceHandler,
     /// If the piano is not connected, it will be [None].
     inner: SharedRwLock<Option<InnerInitialized>>,
 }
 
-impl From<config::Piano> for Piano {
-    fn from(config: config::Piano) -> Self {
+impl Piano {
+    pub fn new(config: config::Piano, a2dp_source_handler: A2dpSourceHandler) -> Self {
         Self {
             config,
+            a2dp_source_handler,
             inner: Arc::default(),
-        }
-    }
-}
-
-impl Piano {
-    pub async fn init_if_device_present(&self) {
-        if let Some(devpath) = self.find_devpath() {
-            if let Some(device) = self.find_audio_device() {
-                self.init_if_not_done(InnerInitialized { devpath, device })
-                    .await;
-            } else {
-                error!("Device path found, but audio device is not");
-            }
         }
     }
 
@@ -61,16 +51,8 @@ impl Piano {
 
             if id_matches {
                 if event.is_initialized() {
-                    if let Some(device) = self.find_audio_device() {
-                        self.init_if_not_done(InnerInitialized {
-                            devpath: event.devpath().to_os_string(),
-                            device,
-                        })
-                        .await;
-                        return Some(HandledPianoEvent::Add);
-                    } else {
-                        error!("Udev device found, but audio device is not")
-                    }
+                    self.init_if_not_done(event.devpath().to_os_string()).await;
+                    return Some(HandledPianoEvent::Add);
                 } else {
                     error!("Udev device found, but it's not initialized");
                 }
@@ -93,40 +75,42 @@ impl Piano {
         None
     }
 
-    async fn init_if_not_done(&self, inner: InnerInitialized) {
-        if self.inner.read().await.is_none() {
-            *self.inner.write().await = Some(inner);
-            info!("Piano initialized");
+    pub async fn init_if_not_done(&self, devpath: OsString) {
+        let mut inner = self.inner.write().await;
+        if inner.is_none() {
+            *inner = Some(InnerInitialized {
+                devpath,
+                device: None,
+            });
+            drop(inner);
+            info!("Piano initilized");
+            self.update_audio_device_if_applicable().await;
         } else {
-            warn!("Initialization skipped because it's already done");
+            warn!("Initialization skipped, because it's already done");
         }
     }
 
-    fn find_audio_device(&self) -> Option<cpal::Device> {
-        info!("Getting all audio devices...");
-        match cpal::default_host().devices() {
-            Ok(devices) => {
-                info!("Audio devices list is retrieved");
-                for device in devices {
-                    match device.name() {
-                        Ok(name) => {
-                            if name.starts_with(&format!(
-                                "{ALSA_PLUGIN_TYPE}:CARD={}",
-                                self.config.device_id
-                            )) {
-                                return Some(device);
-                            }
-                        }
-                        Err(e) => error!("Failed to get an audio device name: {e}"),
-                    }
+    /// If the piano initialized, sets or releases the audio device,
+    /// according to if there is an connected A2DP source.
+    pub async fn update_audio_device_if_applicable(&self) {
+        if let Some(inner) = self.inner.write().await.as_mut() {
+            if self.a2dp_source_handler.has_connected().await {
+                if inner.device.is_some() {
+                    inner.device = None;
+                    info!("Audio device released");
+                }
+            } else if inner.device.is_none() {
+                inner.device = self.find_audio_device();
+                if inner.device.is_some() {
+                    info!("Audio device set");
+                } else {
+                    error!("Audio device is not found");
                 }
             }
-            Err(e) => error!("Failed to list the audio devices: {e}"),
         }
-        None
     }
 
-    fn find_devpath(&self) -> Option<OsString> {
+    pub fn find_devpath(&self) -> Option<OsString> {
         match tokio_udev::Enumerator::new() {
             Ok(mut enumerator) => {
                 let match_result = enumerator
@@ -149,9 +133,32 @@ impl Piano {
         }
         None
     }
+
+    fn find_audio_device(&self) -> Option<cpal::Device> {
+        match cpal::default_host().devices() {
+            Ok(devices) => {
+                for device in devices {
+                    match device.name() {
+                        Ok(name) => {
+                            if name.starts_with(&format!(
+                                "{ALSA_PLUGIN_TYPE}:CARD={}",
+                                self.config.device_id
+                            )) {
+                                return Some(device);
+                            }
+                        }
+                        Err(e) => error!("Failed to get an audio device name: {e}"),
+                    }
+                }
+            }
+            Err(e) => error!("Failed to list the audio devices: {e}"),
+        }
+        None
+    }
 }
 
 struct InnerInitialized {
     devpath: OsString,
-    device: cpal::Device,
+    /// Will be [None] if the audio device is busy now.
+    device: Option<cpal::Device>,
 }

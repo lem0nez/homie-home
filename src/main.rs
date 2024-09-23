@@ -6,7 +6,7 @@ use bluez_async::BluetoothSession;
 use log::{info, warn};
 
 use rpi_server::{
-    bluetooth::{self, Bluetooth},
+    bluetooth::{self, A2dpSourceHandler, Bluetooth},
     config::Config,
     graphql,
     logger::AppLogger,
@@ -26,11 +26,19 @@ async fn main() -> anyhow::Result<()> {
     let bluetooth = Bluetooth::new(bluetooth_session.clone(), config.bluetooth.clone())
         .await
         .with_context(|| "Failed to initialize Bluetooth")?;
+    let a2dp_source_handler = A2dpSourceHandler::new(&bluetooth_session)
+        .await
+        .with_context(|| "Failed to initialize the A2DP source handler")?;
     let shutdown_notify =
         shutdown_notify().with_context(|| "Failed to listen for shutdown signals")?;
-    let app = App::new(config, bluetooth, Arc::clone(&shutdown_notify))
-        .await
-        .with_context(|| "Failed to initialize application")?;
+    let app = App::new(
+        config,
+        bluetooth,
+        a2dp_source_handler,
+        Arc::clone(&shutdown_notify),
+    )
+    .await
+    .with_context(|| "Failed to initialize the application")?;
 
     spawn_http_server(app.clone()).with_context(|| "Failed to start the HTTP server")?;
     spawn_bluetooth(app.clone());
