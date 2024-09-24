@@ -10,8 +10,9 @@ use crate::{bluetooth::A2dpSourceHandler, config, SharedRwLock};
 /// Why it's required?
 /// There is the only way to access the required audio device using [cpal]: iterating over all
 /// available devices and picking the required one. When iterating over devices, they are become
-/// busy. And in the short period when the piano just plugged in, system's sound server changes the
-/// default device. But if device is busy, it will not be used and default one becomes unchanged.
+/// busy. In this short period when the piano just plugged in, system's sound server needs a device
+/// to be available to perform the initialization stuff. But if the device is busy,
+/// it will not be picked up.
 const FIND_AUDIO_DEVICE_DELAY: Duration = Duration::from_millis(500);
 
 pub enum HandledPianoEvent {
