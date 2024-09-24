@@ -1,4 +1,4 @@
-use std::{io, sync::Arc};
+use std::io;
 
 use actix_web::{web, HttpServer};
 use anyhow::Context;
@@ -6,11 +6,11 @@ use bluez_async::BluetoothSession;
 use log::{info, warn};
 
 use rpi_server::{
-    bluetooth::{self, A2dpSourceHandler, Bluetooth},
+    bluetooth::{self, A2DPSourceHandler, Bluetooth},
     config::Config,
     graphql,
     logger::AppLogger,
-    rest, shutdown_notify, udev, App,
+    rest, udev, App,
 };
 
 #[tokio::main]
@@ -26,19 +26,12 @@ async fn main() -> anyhow::Result<()> {
     let bluetooth = Bluetooth::new(bluetooth_session.clone(), config.bluetooth.clone())
         .await
         .with_context(|| "Failed to initialize Bluetooth")?;
-    let a2dp_source_handler = A2dpSourceHandler::new(&bluetooth_session)
+    let a2dp_source_handler = A2DPSourceHandler::new(&bluetooth_session)
         .await
         .with_context(|| "Failed to initialize the A2DP source handler")?;
-    let shutdown_notify =
-        shutdown_notify().with_context(|| "Failed to listen for shutdown signals")?;
-    let app = App::new(
-        config,
-        bluetooth,
-        a2dp_source_handler,
-        Arc::clone(&shutdown_notify),
-    )
-    .await
-    .with_context(|| "Failed to initialize the application")?;
+    let app = App::new(config, bluetooth, a2dp_source_handler)
+        .await
+        .with_context(|| "Failed to initialize the application")?;
 
     spawn_http_server(app.clone()).with_context(|| "Failed to start the HTTP server")?;
     spawn_bluetooth(app.clone());
@@ -47,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
         .with_context(|| "Failed to start the Bluetooth event handler")?;
     // Running it in the main thread, because
     // [tokio_udev::AsyncMonitorSocket] can not be sent between threads.
-    udev::handle_events_until_shutdown(shutdown_notify, app.piano)
+    udev::handle_events_until_shutdown(app)
         .await
         .with_context(|| "Failed to handle device events")
 }

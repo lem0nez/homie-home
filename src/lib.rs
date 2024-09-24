@@ -6,6 +6,7 @@ pub mod rest;
 pub mod udev;
 
 mod core;
+mod dbus;
 mod device;
 mod endpoint;
 mod files;
@@ -21,8 +22,9 @@ use tokio::{
     sync::{Mutex, Notify, RwLock},
 };
 
-use bluetooth::{A2dpSourceHandler, Bluetooth, DeviceHolder};
+use bluetooth::{A2DPSourceHandler, Bluetooth, DeviceHolder};
 use config::Config;
+use dbus::DBus;
 use device::{
     description::LoungeTempMonitor, hotspot::Hotspot, mi_temp_monitor::MiTempMonitor, piano::Piano,
 };
@@ -37,9 +39,11 @@ pub type SharedRwLock<T> = Arc<RwLock<T>>;
 pub struct App {
     pub config: Config,
     pub prefs: SharedRwLock<PreferencesStorage>,
-    pub bluetooth: Bluetooth,
-    pub a2dp_source_handler: A2dpSourceHandler,
     pub shutdown_notify: Arc<Notify>,
+
+    pub dbus: DBus,
+    pub bluetooth: Bluetooth,
+    pub a2dp_source_handler: A2DPSourceHandler,
 
     /// If hotspot configuration is not passed, it will be [None].
     pub hotspot: Option<Hotspot>,
@@ -51,8 +55,7 @@ impl App {
     pub async fn new(
         config: Config,
         bluetooth: Bluetooth,
-        a2dp_source_handler: A2dpSourceHandler,
-        shutdown_notify: Arc<Notify>,
+        a2dp_source_handler: A2DPSourceHandler,
     ) -> anyhow::Result<Self> {
         let prefs_path = config.data_dir.path(Data::Preferences);
         let prefs = Arc::new(RwLock::new(
@@ -66,7 +69,15 @@ impl App {
                 })?,
         ));
 
+        let shutdown_notify =
+            shutdown_notify().with_context(|| "Unable to listen for shutdown signals")?;
+        let dbus = DBus::new()
+            .await
+            .with_context(|| "Unable to create a connection to the message bus")?;
+
         let hotspot = config.hotspot.clone().map(Hotspot::from);
+        let piano = Piano::new(config.piano.clone(), a2dp_source_handler.clone());
+        spawn_piano_init(piano.clone());
         let lounge_temp_monitor = bluetooth::new_device(
             config
                 .bluetooth
@@ -75,21 +86,14 @@ impl App {
                 .expect("server configuration is not validated"),
         );
 
-        let piano = Piano::new(config.piano.clone(), a2dp_source_handler.clone());
-        let piano_clone = piano.clone();
-        tokio::spawn(async move {
-            // Initialize the piano if device present.
-            if let Some(devpath) = piano_clone.find_devpath() {
-                piano_clone.init_if_not_done(devpath).await;
-            }
-        });
-
         Ok(Self {
             config,
             prefs,
+            shutdown_notify,
+
+            dbus,
             bluetooth,
             a2dp_source_handler,
-            shutdown_notify,
 
             hotspot,
             piano,
@@ -98,7 +102,16 @@ impl App {
     }
 }
 
-pub fn shutdown_notify() -> io::Result<Arc<Notify>> {
+fn spawn_piano_init(piano: Piano) {
+    tokio::spawn(async move {
+        // Initialize the piano if device present.
+        if let Some(devpath) = piano.find_devpath() {
+            piano.init_if_not_done(devpath).await;
+        }
+    });
+}
+
+fn shutdown_notify() -> io::Result<Arc<Notify>> {
     let notify: Arc<Notify> = Arc::default();
     let notify_clone = Arc::clone(&notify);
 

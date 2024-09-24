@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use crate::{
     config::{self, bluetooth_backoff},
+    dbus::DBus,
     device::{piano, BluetoothDevice, DeviceDescription},
     App, SharedRwLock,
 };
@@ -406,13 +407,18 @@ impl Bluetooth {
     }
 }
 
+#[derive(strum::Display)]
+pub enum MediaControlCommand {
+    Pause,
+}
+
 #[derive(Clone)]
-pub struct A2dpSourceHandler {
+pub struct A2DPSourceHandler {
     /// Currently connected devices which support A2DP source.
     connected_devices: SharedRwLock<HashSet<DeviceId>>,
 }
 
-impl A2dpSourceHandler {
+impl A2DPSourceHandler {
     pub async fn new(session: &BluetoothSession) -> Result<Self, BluetoothError> {
         let connected_devices: HashSet<_> = session
             .get_devices()
@@ -428,6 +434,28 @@ impl A2dpSourceHandler {
 
     pub async fn has_connected(&self) -> bool {
         !self.connected_devices.read().await.is_empty()
+    }
+
+    /// Send a command to the all connected devices with the A2DP source support.
+    pub async fn send_media_control_command(&self, dbus: &DBus, command: MediaControlCommand) {
+        for device_id in self.connected_devices.read().await.iter() {
+            match dbus.bluetooth_media_control_proxy(device_id).await {
+                Ok(proxy) => {
+                    let result = match command {
+                        MediaControlCommand::Pause => proxy.pause().await,
+                    };
+                    if let Err(e) = result {
+                        error!(
+                            "Failed to send {command} Media Control \
+                            command to device {device_id}: {e}"
+                        );
+                    } else {
+                        info!("{command} Media Control command is sent to device {device_id}");
+                    }
+                }
+                Err(e) => error!("Failed to make Media Control proxy for device {device_id}: {e}"),
+            }
+        }
     }
 
     /// Returns `true` if A2DP source device connected / disconnected.

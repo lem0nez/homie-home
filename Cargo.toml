@@ -59,3 +59,4 @@ figment = { version = "0.10.19", features = ["env", "yaml"] }
 tokio-udev = "0.9.1"
 # We are using Bluetooth service and characteristic UUIDs.
 uuid = "1.10.0"
+zbus = { version = "4.4.0", features = ["tokio"], default-features = false }

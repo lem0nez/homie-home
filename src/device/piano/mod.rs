@@ -3,7 +3,7 @@ use std::{ffi::OsString, sync::Arc, time::Duration};
 use cpal::traits::{DeviceTrait, HostTrait};
 use log::{error, info, warn};
 
-use crate::{bluetooth::A2dpSourceHandler, config, SharedRwLock};
+use crate::{bluetooth::A2DPSourceHandler, config, SharedRwLock};
 
 /// Delay between initializing just plugged in piano and finding its audio device.
 ///
@@ -29,13 +29,13 @@ pub struct UpdateAudioDeviceParams {
 pub struct Piano {
     config: config::Piano,
     /// Used to check whether an audio device is in use by a Bluetooth device.
-    a2dp_source_handler: A2dpSourceHandler,
+    a2dp_source_handler: A2DPSourceHandler,
     /// If the piano is not connected, it will be [None].
     inner: SharedRwLock<Option<InnerInitialized>>,
 }
 
 impl Piano {
-    pub fn new(config: config::Piano, a2dp_source_handler: A2dpSourceHandler) -> Self {
+    pub fn new(config: config::Piano, a2dp_source_handler: A2DPSourceHandler) -> Self {
         Self {
             config,
             a2dp_source_handler,
