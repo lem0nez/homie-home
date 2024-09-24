@@ -1,5 +1,10 @@
-use log::{LevelFilter, Log, Metadata, Record};
+use log::{Level, LevelFilter, Log, Metadata, Record};
 use systemd_journal_logger::JournalLog;
+
+/// Max verbosity level for a module and all its nested children.
+const MODULES_MAX_LEVEL: [(&str, Level); 1] = [
+    ("zbus::connection", Level::Warn), // Prints a lot of raw information.
+];
 
 pub struct AppLogger(JournalLog);
 
@@ -18,6 +23,9 @@ impl Log for AppLogger {
     }
 
     fn log(&self, record: &Record) {
+        if is_blacklisted(record) {
+            return;
+        }
         let result = self.0.journal_send(
             &record
                 .to_builder()
@@ -38,6 +46,21 @@ impl Log for AppLogger {
     }
 
     fn flush(&self) {}
+}
+
+fn is_blacklisted(record: &Record) -> bool {
+    if let Some(module_path) = record.module_path() {
+        let max_level = MODULES_MAX_LEVEL
+            .into_iter()
+            .find(|(path, _)| {
+                module_path == *path || module_path.starts_with(&(path.to_string() + "::"))
+            })
+            .map(|(_, level)| level);
+        if let Some(max_level) = max_level {
+            return record.level() > max_level;
+        }
+    }
+    false
 }
 
 fn make_message_prefix(module_path: &str) -> String {
