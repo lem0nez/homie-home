@@ -1,18 +1,27 @@
-use std::{ffi::OsString, sync::Arc};
+use std::{ffi::OsString, sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};
 use log::{error, info, warn};
 
 use crate::{bluetooth::A2dpSourceHandler, config, SharedRwLock};
 
-/// Comparing to `hw`, `plughw` uses software conversions at the driver level
-/// (re-buffering, sample rate conversion, etc). Also the driver author has
-/// probably optimized performance of the device with some driver level conversions.
-const ALSA_PLUGIN_TYPE: &str = "plughw";
+/// Delay between initializing just plugged in piano and finding its audio device.
+///
+/// Why it's required?
+/// There is the only way to access the required audio device using [cpal]: iterating over all
+/// available devices and picking the required one. When iterating over devices, they are become
+/// busy. And in the short period when the piano just plugged in, system's sound server changes the
+/// default device. But if device is busy, it will not be used and default one becomes unchanged.
+const FIND_AUDIO_DEVICE_DELAY: Duration = Duration::from_millis(500);
 
 pub enum HandledPianoEvent {
     Add,
     Remove,
+}
+
+pub struct UpdateAudioDeviceParams {
+    /// Whether calling the update just after the piano initialized.
+    pub after_piano_init: bool,
 }
 
 #[derive(Clone)]
@@ -84,7 +93,10 @@ impl Piano {
             });
             drop(inner);
             info!("Piano initilized");
-            self.update_audio_device_if_applicable().await;
+            self.update_audio_device_if_applicable(UpdateAudioDeviceParams {
+                after_piano_init: true,
+            })
+            .await;
         } else {
             warn!("Initialization skipped, because it's already done");
         }
@@ -92,7 +104,7 @@ impl Piano {
 
     /// If the piano initialized, sets or releases the audio device,
     /// according to if there is an connected A2DP source.
-    pub async fn update_audio_device_if_applicable(&self) {
+    pub async fn update_audio_device_if_applicable(&self, params: UpdateAudioDeviceParams) {
         if let Some(inner) = self.inner.write().await.as_mut() {
             if self.a2dp_source_handler.has_connected().await {
                 if inner.device.is_some() {
@@ -100,12 +112,25 @@ impl Piano {
                     info!("Audio device released");
                 }
             } else if inner.device.is_none() {
-                inner.device = self.find_audio_device();
-                if inner.device.is_some() {
-                    info!("Audio device set");
-                } else {
-                    error!("Audio device is not found");
-                }
+                let self_clone = self.clone();
+                tokio::spawn(async move {
+                    if params.after_piano_init {
+                        info!("Waiting before finding an audio device...");
+                        tokio::time::sleep(FIND_AUDIO_DEVICE_DELAY).await;
+                    }
+                    if let Some(inner) = self_clone.inner.write().await.as_mut() {
+                        // It can be changed while waiting.
+                        if inner.device.is_some() {
+                            return;
+                        }
+                        inner.device = self_clone.find_audio_device();
+                        if inner.device.is_some() {
+                            info!("Audio device set");
+                        } else {
+                            error!("Audio device is not found");
+                        }
+                    }
+                });
             }
         }
     }
@@ -141,8 +166,8 @@ impl Piano {
                     match device.name() {
                         Ok(name) => {
                             if name.starts_with(&format!(
-                                "{ALSA_PLUGIN_TYPE}:CARD={}",
-                                self.config.device_id
+                                "{}:CARD={}",
+                                self.config.alsa_plugin, self.config.device_id
                             )) {
                                 return Some(device);
                             }
@@ -159,6 +184,6 @@ impl Piano {
 
 struct InnerInitialized {
     devpath: OsString,
-    /// Will be [None] if the audio device is busy now.
+    /// Will be [None] if the audio device is in use now.
     device: Option<cpal::Device>,
 }

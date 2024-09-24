@@ -36,28 +36,28 @@ Required parameters described with the `[REQUIRED]` keyword, others are optional
 ```yaml
 # /etc/rpi-server.yaml
 
-# Address to bind the server to
+# Address to bind the server to.
 server_address: 0.0.0.0
-# Port which used to bind the server
+# Port which used to bind the server.
 server_port: 80
-# Log level filter. Can be one of: OFF, ERROR, WARN, INFO, DEBUG or TRACE
+# Log level filter. Can be one of: OFF, ERROR, WARN, INFO, DEBUG or TRACE.
 log_level: INFO
 # [REQUIRED] Directory with read-only resources. It has the following structure:
 #   site/ - directory with static files to host on "/"
 assets_dir: /path/to/assets
-# Directory where to store user preferences, database and other data
+# Directory where to store user preferences, database and other data.
 data_dir: /var/lib/rpi-server
 # If string is specified, requests to the server will require
-# authentication with this Bearer Token
+# authentication with this Bearer Token.
 access_token: null
 
-# Bluetooth-related parameters
+# Bluetooth-related parameters.
 bluetooth:
-  # How long to perform the discovery
+  # How long to perform the discovery.
   discovery_seconds: 5
-  # Name of Bluetooth adapter to use for the devices discovering
+  # Name of Bluetooth adapter to use for the devices discovering.
   adapter_name: null
-  # [REQUIRED] MAC address of Xiaomi Mi Temperature and Humidity Monitor 2 (LYWSD03MMC)
+  # [REQUIRED] MAC address of Xiaomi Mi Temperature and Humidity Monitor 2 (LYWSD03MMC).
   lounge_temp_mac_address: FF:00:FF:00:FF:00
 
 # [OPTIONAL] Hotspot information.
@@ -73,8 +73,11 @@ hotspot:
   # [REQUIRED] Bluetooth MAC address of the hotpost device.
   bluetooth_mac_address: FF:00:FF:00:FF:00
 
-# Piano information
+# Piano parameters.
 piano:
-  # [REQUIRED] Identifier of an audio device
+  # [REQUIRED] Identifier of an audio device. You can find it in the /proc/asound/cards file.
   device_id: PIANO
+  # ALSA plugin to use for audio input / output.
+  # To list available plugins, run "arecord --list-pcms".
+  alsa_plugin: plughw
 ```

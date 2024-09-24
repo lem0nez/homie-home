@@ -80,10 +80,31 @@ pub struct Hotspot {
     pub bluetooth_mac_address: String,
 }
 
-#[derive(Clone, Default, Deserialize, Validate)]
+#[derive(Clone, Deserialize, Validate)]
+#[serde(default)]
 pub struct Piano {
-    #[validate(min_length = 1, message = "must not be empty")]
+    #[validate(
+        min_length = 1,
+        message = "must be set (you can find it in /proc/asound/cards)"
+    )]
     pub device_id: String,
+    #[validate(
+        min_length = 1,
+        message = "must be set (run 'arecord --list-pcms' to view available)"
+    )]
+    pub alsa_plugin: String,
+}
+
+impl Default for Piano {
+    fn default() -> Self {
+        Self {
+            device_id: String::default(),
+            // Comparing to `hw`, `plughw` uses software conversions at the driver level
+            // (re-buffering, sample rate conversion, etc). Also the driver author has
+            // probably optimized performance of the device with some driver level conversions.
+            alsa_plugin: "plughw".to_string(),
+        }
+    }
 }
 
 impl Config {

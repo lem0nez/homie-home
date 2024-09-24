@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::{
     config::{self, bluetooth_backoff},
-    device::{BluetoothDevice, DeviceDescription},
+    device::{piano, BluetoothDevice, DeviceDescription},
     App, SharedRwLock,
 };
 
@@ -506,7 +506,11 @@ async fn handle_event(event: BluetoothEvent, session: &BluetoothSession, app: &A
                         // If A2DP source connected, audio device may become busy and piano can't
                         // use this device no more.
                         // If A2DP source disconnected, piano should take it for use again.
-                        app.piano.update_audio_device_if_applicable().await;
+                        app.piano
+                            .update_audio_device_if_applicable(piano::UpdateAudioDeviceParams {
+                                after_piano_init: false,
+                            })
+                            .await;
                     }
 
                     if let Some(hotspot) = &app.hotspot {
