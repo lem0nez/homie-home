@@ -450,7 +450,7 @@ impl A2DPSourceHandler {
                             command to device {device_id}: {e}"
                         );
                     } else {
-                        info!("{command} Media Control command is sent to device {device_id}");
+                        info!("{command} Media Control command sent to device {device_id}");
                     }
                 }
                 Err(e) => error!("Failed to make Media Control proxy for device {device_id}: {e}"),
