@@ -20,7 +20,7 @@ pub enum HandledPianoEvent {
     Remove,
 }
 
-pub struct UpdateAudioIoParams {
+pub struct UpdateAudioIOParams {
     /// Whether calling the update just after the piano initialized.
     pub after_piano_init: bool,
 }
@@ -91,7 +91,7 @@ impl Piano {
             *inner = Some(InnerInitialized::new(devpath));
             drop(inner);
             info!("Piano initilized");
-            self.update_audio_io_if_applicable(UpdateAudioIoParams {
+            self.update_audio_io_if_applicable(UpdateAudioIOParams {
                 after_piano_init: true,
             })
             .await;
@@ -102,7 +102,7 @@ impl Piano {
 
     /// If the piano initialized, sets or releases the audio device,
     /// according to if there is an connected A2DP source.
-    pub async fn update_audio_io_if_applicable(&self, params: UpdateAudioIoParams) {
+    pub async fn update_audio_io_if_applicable(&self, params: UpdateAudioIOParams) {
         if let Some(inner) = self.inner.write().await.as_mut() {
             if self.a2dp_source_handler.has_connected().await {
                 if inner.device.is_some() {

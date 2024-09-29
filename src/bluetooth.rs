@@ -535,7 +535,7 @@ async fn handle_event(event: BluetoothEvent, session: &BluetoothSession, app: &A
                         // use this device no more.
                         // If A2DP source disconnected, piano should take it for use again.
                         app.piano
-                            .update_audio_io_if_applicable(piano::UpdateAudioIoParams {
+                            .update_audio_io_if_applicable(piano::UpdateAudioIOParams {
                                 after_piano_init: false,
                             })
                             .await;

@@ -93,6 +93,7 @@ pub struct Piano {
         message = "must be set (run 'arecord --list-pcms' to view available)"
     )]
     pub alsa_plugin: String,
+    #[validate]
     pub flac_recorder: FlacRecorder,
 }
 
