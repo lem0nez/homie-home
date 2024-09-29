@@ -93,6 +93,7 @@ pub struct Piano {
         message = "must be set (run 'arecord --list-pcms' to view available)"
     )]
     pub alsa_plugin: String,
+    pub flac_recorder: FlacRecorder,
 }
 
 impl Default for Piano {
@@ -103,6 +104,28 @@ impl Default for Piano {
             // (re-buffering, sample rate conversion, etc). Also the driver author has
             // probably optimized performance of the device with some driver level conversions.
             alsa_plugin: "plughw".to_string(),
+            flac_recorder: FlacRecorder::default(),
+        }
+    }
+}
+
+#[derive(Clone, Deserialize, Validate)]
+#[serde(default)]
+pub struct FlacRecorder {
+    #[validate(minimum = 1)]
+    pub channels: cpal::ChannelCount,
+    #[serde(deserialize_with = "deserialize::sample_rate")]
+    pub sample_rate: cpal::SampleRate,
+    #[validate(maximum = 8)]
+    pub compression_level: u32,
+}
+
+impl Default for FlacRecorder {
+    fn default() -> Self {
+        Self {
+            channels: 2,                           // Stereo
+            sample_rate: cpal::SampleRate(96_000), // 96 kHz
+            compression_level: 8,                  // Maximum compression
         }
     }
 }
@@ -159,5 +182,16 @@ mod validator {
         bluez_async::MacAddress::from_str(val)
             .map(|_| ())
             .map_err(|e| Error::Custom(e.to_string()))
+    }
+}
+
+mod deserialize {
+    use serde::{Deserialize, Deserializer};
+
+    pub fn sample_rate<'de, D>(deserializer: D) -> Result<cpal::SampleRate, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        u32::deserialize(deserializer).map(cpal::SampleRate)
     }
 }

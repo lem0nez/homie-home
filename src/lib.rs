@@ -5,6 +5,7 @@ pub mod graphql;
 pub mod rest;
 pub mod udev;
 
+mod audio;
 mod dbus;
 mod device;
 mod endpoint;

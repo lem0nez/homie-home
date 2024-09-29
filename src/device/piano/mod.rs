@@ -3,7 +3,7 @@ use std::{ffi::OsString, sync::Arc, time::Duration};
 use cpal::traits::{DeviceTrait, HostTrait};
 use log::{error, info, warn};
 
-use crate::{bluetooth::A2DPSourceHandler, config, SharedRwLock};
+use crate::{audio::recorder::FlacRecorder, bluetooth::A2DPSourceHandler, config, SharedRwLock};
 
 /// Delay between initializing just plugged in piano and finding its audio device.
 ///
@@ -20,7 +20,7 @@ pub enum HandledPianoEvent {
     Remove,
 }
 
-pub struct UpdateAudioDeviceParams {
+pub struct UpdateAudioIoParams {
     /// Whether calling the update just after the piano initialized.
     pub after_piano_init: bool,
 }
@@ -88,13 +88,10 @@ impl Piano {
     pub async fn init_if_not_done(&self, devpath: OsString) {
         let mut inner = self.inner.write().await;
         if inner.is_none() {
-            *inner = Some(InnerInitialized {
-                devpath,
-                device: None,
-            });
+            *inner = Some(InnerInitialized::new(devpath));
             drop(inner);
             info!("Piano initilized");
-            self.update_audio_device_if_applicable(UpdateAudioDeviceParams {
+            self.update_audio_io_if_applicable(UpdateAudioIoParams {
                 after_piano_init: true,
             })
             .await;
@@ -105,34 +102,47 @@ impl Piano {
 
     /// If the piano initialized, sets or releases the audio device,
     /// according to if there is an connected A2DP source.
-    pub async fn update_audio_device_if_applicable(&self, params: UpdateAudioDeviceParams) {
+    pub async fn update_audio_io_if_applicable(&self, params: UpdateAudioIoParams) {
         if let Some(inner) = self.inner.write().await.as_mut() {
             if self.a2dp_source_handler.has_connected().await {
                 if inner.device.is_some() {
                     inner.device = None;
+                    inner.recorder = None;
                     info!("Audio device released");
                 }
-            } else if inner.device.is_none() {
-                let self_clone = self.clone();
-                tokio::spawn(async move {
-                    if params.after_piano_init {
-                        info!("Waiting before finding an audio device...");
-                        tokio::time::sleep(FIND_AUDIO_DEVICE_DELAY).await;
-                    }
-                    if let Some(inner) = self_clone.inner.write().await.as_mut() {
-                        // It can be changed while waiting.
-                        if inner.device.is_some() {
-                            return;
-                        }
-                        inner.device = self_clone.find_audio_device();
-                        if inner.device.is_some() {
-                            info!("Audio device set");
-                        } else {
-                            error!("Audio device is not found");
-                        }
-                    }
-                });
+            } else if inner.device.is_some() {
+                return;
             }
+
+            let self_clone = self.clone();
+            tokio::spawn(async move {
+                if params.after_piano_init {
+                    info!("Waiting before finding an audio device...");
+                    tokio::time::sleep(FIND_AUDIO_DEVICE_DELAY).await;
+                }
+                if let Some(inner) = self_clone.inner.write().await.as_mut() {
+                    // It can be changed while waiting.
+                    if inner.device.is_some() {
+                        return;
+                    }
+                    match self_clone.find_audio_device() {
+                        Some(device) => {
+                            inner.device = Some(device.clone());
+                            info!("Audio device set");
+                            if inner.recorder.is_none() {
+                                match FlacRecorder::new(
+                                    self_clone.config.flac_recorder.clone(),
+                                    device,
+                                ) {
+                                    Ok(recorder) => inner.recorder = Some(recorder),
+                                    Err(e) => error!("Failed to initialize the recorder: {e}"),
+                                }
+                            }
+                        }
+                        None => error!("Audio device is not found"),
+                    }
+                }
+            });
         }
     }
 
@@ -187,4 +197,17 @@ struct InnerInitialized {
     devpath: OsString,
     /// Will be [None] if the audio device is in use now.
     device: Option<cpal::Device>,
+    /// Will be [None] if the audio device is not initialized or if the input
+    /// with provided [config::FlacRecorder] configuration is not available.
+    recorder: Option<FlacRecorder>,
+}
+
+impl InnerInitialized {
+    fn new(devpath: OsString) -> Self {
+        Self {
+            devpath,
+            device: None,
+            recorder: None,
+        }
+    }
 }
