@@ -8,9 +8,8 @@ use log::{info, warn};
 use rpi_server::{
     bluetooth::{self, A2DPSourceHandler, Bluetooth},
     config::Config,
-    graphql,
-    logger::AppLogger,
-    rest, udev, App,
+    core::logger::AppLogger,
+    graphql, rest, udev, App,
 };
 
 #[tokio::main]

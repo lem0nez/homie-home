@@ -4,12 +4,27 @@ yourself. Also it has the [React frontend](https://github.com/lem0nez/rpi-contro
 written mostly by AI.
 
 ## Cross-compilation on Debian-based systems
-First you need to install development libraries for ALSA, D-Bus and Udev.
+First you need to install the development libraries of ALSA, D-Bus, Udev and FLAC runtime
+library.
 
 ```
 # dpkg --add-architecture arm64
 # apt update
-# apt install libasound2-dev:arm64 libdbus-1-dev:arm64 libudev-dev:arm64
+# apt install libasound2-dev:arm64 libflac12:arm64 libdbus-1-dev:arm64 libudev-dev:arm64
+```
+
+Then you need to link the FLAC library (required by `flac-bound` crate,
+see [documentation](https://docs.rs/flac-bound/0.3.0/flac_bound/index.html#building-)).
+- Either locally in the project.
+```
+$ ln --symbolic \
+     /usr/lib/aarch64-linux-gnu/libFLAC.so.12 \
+     target/aarch64-unknown-linux-gnu/<BUILD_PROFILE>/deps/libflac.so
+```
+- Or system-wide.
+```
+# cd /usr/lib/aarch64-linux-gnu
+# ln --symbolic libFLAC.so.12 libflac.so
 ```
 
 After that you can build the binary.

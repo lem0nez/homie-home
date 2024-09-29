@@ -1,3 +1,4 @@
+pub mod logger;
 pub mod stdout_reader;
 
 pub fn round_f32(number: f32, precision: i32) -> f32 {

@@ -51,10 +51,13 @@ async-graphql = { version = "7.0.7", features = [
 ], default-features = false }
 async-graphql-actix-web = "7.0.7"
 
+# To play / record the piano audio.
+cpal = "0.15.3"
+# Used to store records.
+flac-bound = "0.3.0"
+
 bluez-async = "0.7.2"
 chrono = { version = "0.4.38", default-features = false }
-# To play / record audio on the piano.
-cpal = "0.15.3"
 figment = { version = "0.10.19", features = ["env", "yaml"] }
 tokio-udev = "0.9.1"
 # We are using Bluetooth service and characteristic UUIDs.

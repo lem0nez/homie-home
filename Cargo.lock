@@ -1156,6 +1156,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "flac-bound"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d438dc79612e982e62d0d86a1fd434b4f536cddf156ce02063cd56fc3d8d426c"
+dependencies = [
+ "flac-sys",
+]
+
+[[package]]
+name = "flac-sys"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5ccca1896065c6c3927147467ab3d042565607c01194e36560e84344a02c5c0"
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2313,6 +2328,7 @@ dependencies = [
  "chrono",
  "cpal",
  "figment",
+ "flac-bound",
  "futures",
  "log",
  "serde",
@@ -3084,7 +3100,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
