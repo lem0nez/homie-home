@@ -94,7 +94,7 @@ pub struct Piano {
     )]
     pub alsa_plugin: String,
     #[validate]
-    pub flac_recorder: FlacRecorder,
+    pub recorder: Recorder,
 }
 
 impl Default for Piano {
@@ -105,28 +105,28 @@ impl Default for Piano {
             // (re-buffering, sample rate conversion, etc). Also the driver author has
             // probably optimized performance of the device with some driver level conversions.
             alsa_plugin: "plughw".to_string(),
-            flac_recorder: FlacRecorder::default(),
+            recorder: Recorder::default(),
         }
     }
 }
 
 #[derive(Clone, Deserialize, Validate)]
 #[serde(default)]
-pub struct FlacRecorder {
+pub struct Recorder {
     #[validate(minimum = 1)]
     pub channels: cpal::ChannelCount,
     #[serde(deserialize_with = "deserialize::sample_rate")]
     pub sample_rate: cpal::SampleRate,
     #[validate(maximum = 8)]
-    pub compression_level: u32,
+    pub flac_compression_level: u32,
 }
 
-impl Default for FlacRecorder {
+impl Default for Recorder {
     fn default() -> Self {
         Self {
             channels: 2,                           // Stereo
             sample_rate: cpal::SampleRate(96_000), // 96 kHz
-            compression_level: 8,                  // Maximum compression
+            flac_compression_level: 8,             // Maximum compression
         }
     }
 }

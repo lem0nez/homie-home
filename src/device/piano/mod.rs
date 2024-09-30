@@ -3,7 +3,7 @@ use std::{ffi::OsString, sync::Arc, time::Duration};
 use cpal::traits::{DeviceTrait, HostTrait};
 use log::{error, info, warn};
 
-use crate::{audio::recorder::FlacRecorder, bluetooth::A2DPSourceHandler, config, SharedRwLock};
+use crate::{audio::recorder::Recorder, bluetooth::A2DPSourceHandler, config, SharedRwLock};
 
 /// Delay between initializing just plugged in piano and finding its audio device.
 ///
@@ -130,10 +130,7 @@ impl Piano {
                             inner.device = Some(device.clone());
                             info!("Audio device set");
                             if inner.recorder.is_none() {
-                                match FlacRecorder::new(
-                                    self_clone.config.flac_recorder.clone(),
-                                    device,
-                                ) {
+                                match Recorder::new(self_clone.config.recorder.clone(), device) {
                                     Ok(recorder) => inner.recorder = Some(recorder),
                                     Err(e) => error!("Failed to initialize the recorder: {e}"),
                                 }
@@ -198,8 +195,8 @@ struct InnerInitialized {
     /// Will be [None] if the audio device is in use now.
     device: Option<cpal::Device>,
     /// Will be [None] if the audio device is not initialized or if the input
-    /// with provided [config::FlacRecorder] configuration is not available.
-    recorder: Option<FlacRecorder>,
+    /// with provided [config::Recorder] configuration is not available.
+    recorder: Option<Recorder>,
 }
 
 impl InnerInitialized {
