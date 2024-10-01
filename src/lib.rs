@@ -12,18 +12,14 @@ mod endpoint;
 mod files;
 mod prefs;
 
-use std::{io, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Context;
-use log::info;
-use tokio::{
-    select,
-    signal::unix::{signal, SignalKind},
-    sync::{Mutex, Notify, RwLock},
-};
+use tokio::sync::{Mutex, RwLock};
 
 use bluetooth::{A2DPSourceHandler, Bluetooth, DeviceHolder};
 use config::Config;
+use core::ShutdownNotify;
 use dbus::DBus;
 use device::{
     description::LoungeTempMonitor, hotspot::Hotspot, mi_temp_monitor::MiTempMonitor, piano::Piano,
@@ -39,7 +35,7 @@ pub type SharedRwLock<T> = Arc<RwLock<T>>;
 pub struct App {
     pub config: Config,
     pub prefs: SharedRwLock<PreferencesStorage>,
-    pub shutdown_notify: Arc<Notify>,
+    pub shutdown_notify: ShutdownNotify,
 
     pub dbus: DBus,
     pub bluetooth: Bluetooth,
@@ -70,13 +66,17 @@ impl App {
         ));
 
         let shutdown_notify =
-            shutdown_notify().with_context(|| "Unable to listen for shutdown signals")?;
+            ShutdownNotify::listen().with_context(|| "Unable to listen for shutdown signals")?;
         let dbus = DBus::new()
             .await
             .with_context(|| "Unable to create a connection to the message bus")?;
 
         let hotspot = config.hotspot.clone().map(Hotspot::from);
-        let piano = Piano::new(config.piano.clone(), a2dp_source_handler.clone());
+        let piano = Piano::new(
+            config.piano.clone(),
+            shutdown_notify.clone(),
+            a2dp_source_handler.clone(),
+        );
         spawn_piano_init(piano.clone());
         let lounge_temp_monitor = bluetooth::new_device(
             config
@@ -109,22 +109,4 @@ fn spawn_piano_init(piano: Piano) {
             piano.init_if_not_done(devpath).await;
         }
     });
-}
-
-fn shutdown_notify() -> io::Result<Arc<Notify>> {
-    let notify: Arc<Notify> = Arc::default();
-    let notify_clone = Arc::clone(&notify);
-
-    let mut sigint = signal(SignalKind::interrupt())?;
-    let mut sigterm = signal(SignalKind::terminate())?;
-    let shutdown_info = |signal| info!("{signal} received: notifying about shutdown...");
-
-    tokio::spawn(async move {
-        select! {
-            _ = sigint.recv() => shutdown_info("SIGINT"),
-            _ = sigterm.recv() => shutdown_info("SIGTERM"),
-        }
-        notify_clone.notify_waiters();
-    });
-    Ok(notify)
 }

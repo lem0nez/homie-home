@@ -3,7 +3,10 @@ use std::{ffi::OsString, sync::Arc, time::Duration};
 use cpal::traits::{DeviceTrait, HostTrait};
 use log::{error, info, warn};
 
-use crate::{audio::recorder::Recorder, bluetooth::A2DPSourceHandler, config, SharedRwLock};
+use crate::{
+    audio::recorder::Recorder, bluetooth::A2DPSourceHandler, config, core::ShutdownNotify,
+    SharedMutex,
+};
 
 /// Delay between initializing just plugged in piano and finding its audio device.
 ///
@@ -28,16 +31,22 @@ pub struct UpdateAudioIOParams {
 #[derive(Clone)]
 pub struct Piano {
     config: config::Piano,
+    shutdown_notify: ShutdownNotify,
     /// Used to check whether an audio device is in use by a Bluetooth device.
     a2dp_source_handler: A2DPSourceHandler,
     /// If the piano is not connected, it will be [None].
-    inner: SharedRwLock<Option<InnerInitialized>>,
+    inner: SharedMutex<Option<InnerInitialized>>,
 }
 
 impl Piano {
-    pub fn new(config: config::Piano, a2dp_source_handler: A2DPSourceHandler) -> Self {
+    pub fn new(
+        config: config::Piano,
+        shutdown_notify: ShutdownNotify,
+        a2dp_source_handler: A2DPSourceHandler,
+    ) -> Self {
         Self {
             config,
+            shutdown_notify,
             a2dp_source_handler,
             inner: Arc::default(),
         }
@@ -68,16 +77,14 @@ impl Piano {
                 }
             }
         } else if event_type == tokio_udev::EventType::Remove {
-            let devpath_matches = self
-                .inner
-                .read()
-                .await
+            let mut inner = self.inner.lock().await;
+            let devpath_matches = inner
                 .as_ref()
                 .map(|inner| event.devpath() == inner.devpath)
                 .unwrap_or(false);
 
             if devpath_matches {
-                *self.inner.write().await = None;
+                *inner = None;
                 info!("Piano removed");
                 return Some(HandledPianoEvent::Remove);
             }
@@ -86,7 +93,7 @@ impl Piano {
     }
 
     pub async fn init_if_not_done(&self, devpath: OsString) {
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
         if inner.is_none() {
             *inner = Some(InnerInitialized::new(devpath));
             drop(inner);
@@ -103,7 +110,7 @@ impl Piano {
     /// If the piano initialized, sets or releases the audio device,
     /// according to if there is an connected A2DP source.
     pub async fn update_audio_io_if_applicable(&self, params: UpdateAudioIOParams) {
-        if let Some(inner) = self.inner.write().await.as_mut() {
+        if let Some(inner) = self.inner.lock().await.as_mut() {
             if self.a2dp_source_handler.has_connected().await {
                 if inner.device.is_some() {
                     inner.device = None;
@@ -120,7 +127,7 @@ impl Piano {
                     info!("Waiting before finding an audio device...");
                     tokio::time::sleep(FIND_AUDIO_DEVICE_DELAY).await;
                 }
-                if let Some(inner) = self_clone.inner.write().await.as_mut() {
+                if let Some(inner) = self_clone.inner.lock().await.as_mut() {
                     // It can be changed while waiting.
                     if inner.device.is_some() {
                         return;
@@ -129,8 +136,13 @@ impl Piano {
                         Some(device) => {
                             inner.device = Some(device.clone());
                             info!("Audio device set");
+
                             if inner.recorder.is_none() {
-                                match Recorder::new(self_clone.config.recorder.clone(), device) {
+                                match Recorder::new(
+                                    self_clone.config.recorder.clone(),
+                                    device,
+                                    self_clone.shutdown_notify.clone(),
+                                ) {
                                     Ok(recorder) => inner.recorder = Some(recorder),
                                     Err(e) => error!("Failed to initialize the recorder: {e}"),
                                 }

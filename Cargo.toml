@@ -55,6 +55,8 @@ async-graphql-actix-web = "7.0.7"
 cpal = "0.15.3"
 # Used to store records.
 flac-bound = "0.3.0"
+# Embed metadata into the records.
+metaflac = "0.2.7"
 
 bluez-async = "0.7.2"
 chrono = { version = "0.4.38", default-features = false }
