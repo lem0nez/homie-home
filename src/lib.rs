@@ -22,7 +22,10 @@ use config::Config;
 use core::ShutdownNotify;
 use dbus::DBus;
 use device::{
-    description::LoungeTempMonitor, hotspot::Hotspot, mi_temp_monitor::MiTempMonitor, piano::Piano,
+    description::LoungeTempMonitor,
+    hotspot::Hotspot,
+    mi_temp_monitor::MiTempMonitor,
+    piano::{self, Piano},
 };
 use files::{BaseDir, Data};
 use prefs::PreferencesStorage;
@@ -71,13 +74,19 @@ impl App {
             .await
             .with_context(|| "Unable to create a connection to the message bus")?;
 
-        let hotspot = config.hotspot.clone().map(Hotspot::from);
         let piano = Piano::new(
             config.piano.clone(),
             shutdown_notify.clone(),
             a2dp_source_handler.clone(),
         );
-        spawn_piano_init(piano.clone());
+        piano.find_devpath().map(|devpath| {
+            let init_params = piano::InitParams {
+                after_piano_connected: false,
+            };
+            piano.init(devpath, init_params)
+        });
+
+        let hotspot = config.hotspot.clone().map(Hotspot::from);
         let lounge_temp_monitor = bluetooth::new_device(
             config
                 .bluetooth
@@ -100,13 +109,4 @@ impl App {
             lounge_temp_monitor,
         })
     }
-}
-
-fn spawn_piano_init(piano: Piano) {
-    tokio::spawn(async move {
-        // Initialize the piano if device present.
-        if let Some(devpath) = piano.find_devpath() {
-            piano.init_if_not_done(devpath).await;
-        }
-    });
 }
