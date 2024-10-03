@@ -79,12 +79,12 @@ impl App {
             shutdown_notify.clone(),
             a2dp_source_handler.clone(),
         );
-        piano.find_devpath().map(|devpath| {
+        if let Some(devpath) = piano.find_devpath() {
             let init_params = piano::InitParams {
                 after_piano_connected: false,
             };
-            piano.init(devpath, init_params)
-        });
+            piano.init(devpath, init_params).await;
+        }
 
         let hotspot = config.hotspot.clone().map(Hotspot::from);
         let lounge_temp_monitor = bluetooth::new_device(
