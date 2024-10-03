@@ -125,7 +125,7 @@ impl Default for Recorder {
     fn default() -> Self {
         Self {
             channels: 2,                           // Stereo
-            sample_rate: cpal::SampleRate(96_000), // 96 kHz
+            sample_rate: cpal::SampleRate(48_000), // 48 kHz
             flac_compression_level: 8,             // Maximum compression
         }
     }

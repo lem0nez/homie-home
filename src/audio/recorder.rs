@@ -168,7 +168,7 @@ impl Recorder {
                     if before_processing {
                         "Preparation failed"
                     } else {
-                        "Processing finished unsuccessfully"
+                        "Recording finished unsuccessfully"
                     }
                 );
                 // We need to keep processed data even on fail.
