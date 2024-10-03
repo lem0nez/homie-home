@@ -1,11 +1,11 @@
 use std::{
-    cmp, fmt,
+    cmp,
     fs::{self, File},
     io, mem,
     path::Path,
     sync::{
         atomic::{self, AtomicBool},
-        mpsc::{self, RecvTimeoutError},
+        mpsc::{self as std_mpsc, RecvTimeoutError},
         Arc,
     },
     time::Duration,
@@ -14,29 +14,65 @@ use std::{
 use anyhow::anyhow;
 use cpal::{
     traits::{DeviceTrait, StreamTrait},
-    Device, SupportedStreamConfig, SupportedStreamConfigsError,
+    BuildStreamError, Device, PlayStreamError, StreamError, SupportedStreamConfig,
+    SupportedStreamConfigsError,
 };
 use flac_bound::{FlacEncoder, FlacEncoderConfig, FlacEncoderState};
 use log::{error, info};
-use tokio::{select, sync::Notify, task};
+use tokio::{sync::mpsc as tokio_mpsc, task};
 
 use crate::{config, core::ShutdownNotify};
 
-/// Sample type used in the [flac_bound] library.
-type FLACSample = i32;
-/// Minimum interval between checks of the stop trigger.
-const MIN_STOP_HANDLE_INTERVAL: Duration = Duration::from_millis(100);
+/// Sample type of the maximum size which is used in the [flac_bound] library.
+type FLACSampleMax = i32;
+/// Maximum interval between checks whether audio processing should be stopped.
+const MAX_STOP_HANDLE_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, thiserror::Error)]
 pub enum RecordError {
-    #[error("recording is already in process")]
+    #[error("already recording")]
     AlreadyRecording,
     #[error("recording has not been started")]
     NotRecording,
     #[error("unable to create a new output file ({0})")]
     CreateFileError(io::Error),
-    #[error("an error occurred in the processing thread")]
-    ProcessingError,
+    #[error("failed to prepare the FLAC encoder: {0}")]
+    EncoderInitError(String),
+    #[error("unable to build an input stream ({0})")]
+    BuildStreamError(BuildStreamError),
+    #[error("unable to start capturing ({0})")]
+    CaptureFailed(PlayStreamError),
+    #[error("an error occurred trying to process the samples ({0:?})")]
+    ProcessSamplesFailed(FlacEncoderState),
+    #[error("error occurred in the input stream ({0})")]
+    StreamError(StreamError),
+    #[error("input stream closed")]
+    StreamClosed,
+    #[error("unable to finish the encoding ({0:?})")]
+    FinishEncodingFailed(FlacEncoderState),
+    #[error("failed to embed metadata ({0})")]
+    EmbedMetadataError(metaflac::Error),
+    #[error("processing thread is closed")]
+    ProcessingTerminated,
+    #[error("{}", _0.iter().map(|err| err.to_string()).collect::<Vec<_>>().join("; "))]
+    MultipleErrors(Vec<Self>),
+}
+
+impl RecordError {
+    /// Returns `error` if `result` is [Ok].
+    /// Otherwise [RecordError::MultipleErrors] with `error` inside it.
+    fn new_or_append<T>(result: Result<T, Self>, error: Self) -> Self {
+        if let Err(mut result_err) = result {
+            if let Self::MultipleErrors(errors) = &mut result_err {
+                errors.push(error);
+                result_err
+            } else {
+                Self::MultipleErrors(vec![result_err, error])
+            }
+        } else {
+            error
+        }
+    }
 }
 
 pub struct Recorder {
@@ -46,18 +82,34 @@ pub struct Recorder {
 
     /// Used to stop recording if the program is terminating.
     shutdown_notify: ShutdownNotify,
-    /// Set to [Some] if recording in process.
+    /// Set to [Some] if recording is in process.
     recording_handlers: Option<RecordingHandlers>,
 }
 
-#[derive(Default, Clone)]
 struct RecordingHandlers {
-    // Status notifiers trigger by the processing thread.
-    status_error: Arc<Notify>,
-    status_initialized: Arc<Notify>,
-    status_finished: Arc<Notify>,
+    status_rx: tokio_mpsc::Receiver<StatusMessage>,
     // Stop trigger initiates by the caller to be handled by the processing thread.
     stop_trigger: Arc<AtomicBool>,
+}
+
+impl RecordingHandlers {
+    fn new() -> (Self, tokio_mpsc::Sender<StatusMessage>) {
+        let (status_tx, status_rx) = tokio_mpsc::channel(1);
+        (
+            Self {
+                status_rx,
+                stop_trigger: Arc::default(),
+            },
+            status_tx,
+        )
+    }
+}
+
+enum StatusMessage {
+    Error(RecordError),
+    /// Processing successfully started.
+    Initialized,
+    Finished,
 }
 
 impl Recorder {
@@ -90,35 +142,37 @@ impl Recorder {
         }
     }
 
-    /// Start captruring to the given `out_flac` FLAC file.
+    /// Start capturing to the given `out_flac` FLAC file.
     /// This file will be created, so it must **not** exists.
     pub async fn start(&mut self, out_flac: &Path) -> Result<(), RecordError> {
         if self.recording_handlers.is_some() {
             return Err(RecordError::AlreadyRecording);
         }
 
-        let mut file = match File::create_new(out_flac) {
-            Ok(file) => file,
-            Err(e) => return Err(RecordError::CreateFileError(e)),
-        };
+        let mut file = File::create_new(out_flac).map_err(RecordError::CreateFileError)?;
         let path = out_flac.to_owned();
 
         // We can't create stream encoder here, because it can't be moved between threads.
         let device = self.device.clone();
-        let (stream_config, stream_channels, flac_compression_level) = (
-            self.stream_config.clone(),
-            self.stream_config.channels(),
-            self.flac_compression_level,
-        );
+        let (stream_config, flac_compression_level) =
+            (self.stream_config.clone(), self.flac_compression_level);
 
         let shutdown_notify = self.shutdown_notify.clone();
-        let handlers = RecordingHandlers::default();
-        let handlers_half = handlers.clone();
+        let (mut handlers, status_tx) = RecordingHandlers::new();
+        let stop_trigger = Arc::clone(&handlers.stop_trigger);
 
         task::spawn_blocking(move || {
-            let notify_error = |message, remove_file| {
-                error!("{message}");
-                if remove_file {
+            let send_error = |error, before_processing| {
+                error!(
+                    "{}: {error}",
+                    if before_processing {
+                        "Preparation failed"
+                    } else {
+                        "Processing finished unsuccessfully"
+                    }
+                );
+                // We need to keep processed data even on fail.
+                if before_processing {
                     if let Err(e) = fs::remove_file(&path) {
                         error!(
                             "Failed to remove the output file {}: {e}",
@@ -126,7 +180,7 @@ impl Recorder {
                         );
                     }
                 }
-                handlers.status_error.notify_one();
+                let _ = status_tx.blocking_send(StatusMessage::Error(error));
             };
 
             // Using wrapper as `FlacEncoder::init_file` doesn't support Unicode names.
@@ -138,110 +192,76 @@ impl Recorder {
                         .init_write(&mut write_wrapper)
                         .map_err(|err| format!("initialization failed ({err:?})"))
                 });
-            let mut encoder = match encoder {
+            let encoder = match encoder {
                 Ok(encoder) => encoder,
                 Err(e) => {
-                    return notify_error(format!("Failed to prepare the FLAC encoder: {e}"), true);
+                    return send_error(RecordError::EncoderInitError(e), true);
                 }
             };
 
-            let (data_tx, data_rx) = mpsc::channel();
-            let err_data_tx = data_tx.clone();
+            let (samples_tx, samples_rx) = std_mpsc::channel();
+            let err_tx = samples_tx.clone();
             let stream = device.build_input_stream(
-                &stream_config.into(),
-                move |samples: &[FLACSample], _| {
-                    let _ = data_tx.send(Ok(samples.to_vec()));
+                &stream_config.clone().into(),
+                move |samples: &[FLACSampleMax], _| {
+                    let _ = samples_tx.send(Ok(samples.to_vec()));
                 },
                 move |err| {
-                    let _ = err_data_tx.send(Err(err));
+                    let _ = err_tx.send(Err(err));
                 },
                 None,
             );
             let stream = match stream {
                 Ok(stream) => stream,
                 Err(e) => {
-                    return notify_error(format!("Failed to build an input stream: {e}"), true);
+                    return send_error(RecordError::BuildStreamError(e), true);
                 }
             };
 
             if let Err(e) = stream.play() {
-                return notify_error(format!("Failed to start capturing: {e}"), true);
+                return send_error(RecordError::CaptureFailed(e), true);
             }
-            handlers.status_initialized.notify_one();
-            info!("Capturing started to {}", path.to_string_lossy());
+            let _ = status_tx.blocking_send(StatusMessage::Initialized);
+            info!("Recording started to {}", path.to_string_lossy());
 
-            let mut total_samples_per_channel = 0;
-            // Main processing loop.
-            let mut result = loop {
-                if handlers.stop_trigger.load(atomic::Ordering::Relaxed)
-                    || shutdown_notify.triggered()
-                {
-                    break Ok(());
-                }
-
-                match data_rx.recv_timeout(MIN_STOP_HANDLE_INTERVAL) {
-                    Ok(Ok(samples)) => {
-                        let samples_per_channel = samples.len() / stream_channels as usize;
-                        if let Err(e) =
-                            process_samples(&mut encoder, &samples, samples_per_channel as u32)
-                        {
-                            break Err(format!("Failed to process samples: {e:?}"));
-                        }
-                        total_samples_per_channel += samples_per_channel as u64;
-                    }
-                    Ok(Err(e)) => {
-                        break Err(format!("An error occurred in the stream: {e}"));
-                    }
-                    Err(RecvTimeoutError::Disconnected) => {
-                        break Err("Input stream closed".to_string());
-                    }
-                    Err(RecvTimeoutError::Timeout) => {}
-                }
-            };
-
-            let mut error_now_or_set_result = |message: fmt::Arguments| {
-                if result.is_err() {
-                    error!("{message}");
-                } else {
-                    result = Err(message.to_string());
-                }
-            };
-
-            if let Err(encoder) = encoder.finish() {
-                error_now_or_set_result(format_args!(
-                    "Unable to finish the encoding: {:?}",
-                    encoder.state()
-                ));
-            }
+            let result = processing_loop(ProcessingLoopInput {
+                stream_config,
+                out_file: &path,
+                encoder,
+                shutdown_notify,
+                stop_trigger,
+                samples_rx,
+            });
             drop(stream);
-            info!("Embedding metadata...");
-            if let Err(e) = embed_metadata(&path, total_samples_per_channel) {
-                error_now_or_set_result(format_args!("Unable to embed metadata: {e}"));
-            }
-
             if let Err(e) = result {
-                notify_error(e, false);
+                send_error(e, false);
             } else {
-                handlers.status_finished.notify_one();
+                let _ = status_tx.blocking_send(StatusMessage::Finished);
+                info!("Recording finished");
             }
-            info!("Capturing finished");
         });
 
-        select! {
-            _ = handlers_half.status_error.notified() => Err(RecordError::ProcessingError),
-            _ = handlers_half.status_initialized.notified() => {
-                self.recording_handlers = Some(handlers_half);
+        match handlers.status_rx.recv().await {
+            Some(StatusMessage::Error(e)) => Err(e),
+            Some(StatusMessage::Initialized) => {
+                self.recording_handlers = Some(handlers);
                 Ok(())
             }
+            Some(StatusMessage::Finished) => panic!("it can not finish before initializing"),
+            None => Err(RecordError::ProcessingTerminated),
         }
     }
 
     pub async fn stop(&mut self) -> Result<(), RecordError> {
-        if let Some(handlers) = self.recording_handlers.take() {
+        if let Some(mut handlers) = self.recording_handlers.take() {
             handlers.stop_trigger.store(true, atomic::Ordering::Relaxed);
-            select! {
-                _ = handlers.status_error.notified() => Err(RecordError::ProcessingError),
-                _ = handlers.status_finished.notified() => Ok(())
+            match handlers.status_rx.recv().await {
+                Some(StatusMessage::Error(e)) => Err(e),
+                Some(StatusMessage::Finished) => Ok(()),
+                Some(StatusMessage::Initialized) => {
+                    panic!("initialization must be handled when starting recording")
+                }
+                None => Err(RecordError::ProcessingTerminated),
             }
         } else {
             Err(RecordError::NotRecording)
@@ -257,14 +277,58 @@ impl Drop for Recorder {
     }
 }
 
-fn process_samples(
-    encoder: &mut FlacEncoder,
-    samples: &[FLACSample],
-    samples_per_channel: u32,
-) -> Result<(), FlacEncoderState> {
-    encoder
-        .process_interleaved(samples, samples_per_channel)
-        .map_err(|_| encoder.state())
+struct ProcessingLoopInput<'a> {
+    /// Using it because in [cpal::StreamConfig] sample format is omitted.
+    stream_config: SupportedStreamConfig,
+    out_file: &'a Path,
+    encoder: FlacEncoder<'a>,
+    shutdown_notify: ShutdownNotify,
+    stop_trigger: Arc<AtomicBool>,
+    samples_rx: std_mpsc::Receiver<Result<Vec<FLACSampleMax>, StreamError>>,
+}
+
+fn processing_loop(mut input: ProcessingLoopInput) -> Result<(), RecordError> {
+    let mut total_samples_per_channel = 0;
+    let mut result = loop {
+        if input.stop_trigger.load(atomic::Ordering::Relaxed) || input.shutdown_notify.triggered() {
+            break Ok(());
+        }
+
+        match input.samples_rx.recv_timeout(MAX_STOP_HANDLE_INTERVAL) {
+            Ok(Ok(samples)) => {
+                let samples_per_channel = samples.len() / input.stream_config.channels() as usize;
+                let result = input
+                    .encoder
+                    .process_interleaved(&samples, samples_per_channel as u32)
+                    .map_err(|_| input.encoder.state());
+                if let Err(e) = result {
+                    break Err(RecordError::ProcessSamplesFailed(e));
+                }
+                total_samples_per_channel += samples_per_channel as u64;
+            }
+            Ok(Err(e)) => {
+                break Err(RecordError::StreamError(e));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                break Err(RecordError::StreamClosed);
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+    };
+    // We must try to finish encoding to preserve encoded data so far.
+    if let Err(encoder) = input.encoder.finish() {
+        result = Err(RecordError::new_or_append(
+            result,
+            RecordError::FinishEncodingFailed(encoder.state()),
+        ));
+    }
+    if let Err(e) = embed_metadata(input.out_file, total_samples_per_channel) {
+        result = Err(RecordError::new_or_append(
+            result,
+            RecordError::EmbedMetadataError(e),
+        ));
+    }
+    result
 }
 
 fn embed_metadata(flac_path: &Path, total_samples: u64) -> metaflac::Result<()> {
@@ -288,7 +352,7 @@ fn flac_supported_input_configs(
             let sample_format = stream_config.sample_format();
             // Only signed integer is supported.
             sample_format.is_int()
-                && sample_format.sample_size() <= mem::size_of::<FLACSample>()
+                && sample_format.sample_size() <= mem::size_of::<FLACSampleMax>()
                 && stream_config.channels() == config.channels
         })
         .flat_map(|stream_config| stream_config.try_with_sample_rate(config.sample_rate))
