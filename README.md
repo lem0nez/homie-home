@@ -99,8 +99,8 @@ piano:
   recorder:
     # Number of channels (default is stereo).
     channels: 2
-    # Sample rate (default is 96 kHz).
-    sample_rate: 96000
+    # Sample rate (default is 48 kHz).
+    sample_rate: 48000
     # Compression level of the FLAC file (from 0 to 8).
     flac_compression_level: 8
 ```
