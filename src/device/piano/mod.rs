@@ -104,14 +104,17 @@ impl Piano {
         *inner = Some(InnerInitialized::new(devpath));
         info!("Piano initialized");
 
-        let self_clone = self.clone();
-        tokio::spawn(async move {
-            if params.after_piano_connected {
-                info!("Waiting before initializing the audio...");
-                tokio::time::sleep(FIND_AUDIO_DEVICE_DELAY).await;
-            }
-            self_clone.update_audio_io().await;
-        });
+        if !self.a2dp_source_handler.has_connected().await {
+            let self_clone = self.clone();
+            // Using separate thread because of FIND_AUDIO_DEVICE_DELAY.
+            tokio::spawn(async move {
+                if params.after_piano_connected {
+                    info!("Waiting before initializing the audio...");
+                    tokio::time::sleep(FIND_AUDIO_DEVICE_DELAY).await;
+                }
+                self_clone.update_audio_io().await;
+            });
+        }
     }
 
     /// If the piano initialized, sets or releases the audio device,
