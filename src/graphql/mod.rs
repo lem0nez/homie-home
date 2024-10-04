@@ -25,6 +25,6 @@ pub fn build_playground() -> GraphQLPlayground {
     GraphiQLSource::build()
         .endpoint("/api/graphql")
         .subscription_endpoint("/api/graphql")
-        .title("Raspberry Pi GraphQL")
+        .title("Homie GraphQL")
         .finish()
 }

@@ -1,6 +1,6 @@
 [package]
-name = "rpi-server"
-description = "Raspberry Pi server"
+name = "homie-home"
+description = "Raspberry Pi server for the smart homie things"
 version = "1.0.0"
 edition = "2021"
 license = "MIT"

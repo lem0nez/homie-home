@@ -10,8 +10,8 @@ use serde_valid::Validate;
 
 use crate::files::{AssetsDir, DataDir};
 
-const YAML_FILE_LOCATION: &str = "/etc/rpi-server.yaml";
-const ENV_PREFIX: &str = "RPI_";
+const YAML_FILE_LOCATION: &str = "/etc/homie-home.yaml";
+const ENV_PREFIX: &str = "HOMIE_";
 
 #[derive(Clone, Deserialize, Validate)]
 #[serde(default)]
@@ -41,7 +41,7 @@ impl Default for Config {
             server_port: 80,
             log_level: LevelFilter::Info,
             assets_dir: AssetsDir::unset(),
-            data_dir: Path::new("/var/lib/rpi-server").into(),
+            data_dir: Path::new("/var/lib/homie-home").into(),
             access_token: None,
             bluetooth: Bluetooth::default(),
             hotspot: None,

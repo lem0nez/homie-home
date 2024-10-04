@@ -1,6 +1,6 @@
-# Raspberry Pi server
+# Homie Home
 Primarily this project written to cover my own needs, but you can find something useful for
-yourself. Also it has the [React frontend](https://github.com/lem0nez/rpi-control) which
+yourself. Also it has the [React frontend](https://github.com/lem0nez/homie-panel) which
 written mostly by AI.
 
 ## Cross-compilation on Debian-based systems
@@ -36,20 +36,20 @@ $ cargo build --target aarch64-unknown-linux-gnu
 
 ## Running
 To run the server you must set some required parameters. It can be achieved in two ways.
-1. By settings environment variables with the `RPI_` prefix.
-2. By putting values inside the `/etc/rpi-server.yaml` configuration file.
+1. By settings environment variables with the `HOMIE_` prefix.
+2. By putting values inside the `/etc/homie-home.yaml` configuration file.
 
 If the server started successfully, you can view logs using the following command:
 
 ```
-$ journalctl --identifier rpi-server
+$ journalctl --identifier homie-home
 ```
 
 ### Configuration
 Required parameters described with the `[REQUIRED]` keyword, others are optional.
 
 ```yaml
-# /etc/rpi-server.yaml
+# /etc/homie-home.yaml
 
 # Address to bind the server to.
 server_address: 0.0.0.0
@@ -61,7 +61,7 @@ log_level: INFO
 #   site/ - directory with static files to host on "/"
 assets_dir: /path/to/assets
 # Directory where to store user preferences, database and other data.
-data_dir: /var/lib/rpi-server
+data_dir: /var/lib/homie-home
 # If string is specified, requests to the server will require
 # authentication with this Bearer Token.
 access_token: null

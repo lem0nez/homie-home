@@ -5,7 +5,7 @@ use anyhow::Context;
 use bluez_async::BluetoothSession;
 use log::{info, warn};
 
-use rpi_server::{
+use homie_home::{
     bluetooth::{self, A2DPSourceHandler, Bluetooth},
     config::Config,
     core::logger::AppLogger,
