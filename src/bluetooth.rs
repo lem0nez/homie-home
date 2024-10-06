@@ -21,6 +21,7 @@ use crate::{
     config::{self, bluetooth_backoff},
     dbus::DBus,
     device::{BluetoothDevice, DeviceDescription},
+    graphql::GraphQLError,
     App, SharedRwLock,
 };
 
@@ -34,7 +35,8 @@ where
     Arc::new(RwLock::new(Device::NotConnected(mac_address)))
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, strum::AsRefStr, thiserror::Error)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum DeviceAccessError<D: DeviceDescription> {
     #[error("{} is not connected", D::name())]
     NotConnected(PhantomData<D>),
@@ -52,6 +54,8 @@ pub enum DeviceAccessError<D: DeviceDescription> {
     #[error("{} is unhealthy and will be reconnected", D::name())]
     Unhealthy(PhantomData<D>),
 }
+
+impl<D: DeviceDescription> GraphQLError for DeviceAccessError<D> {}
 
 pub enum Device<T: BluetoothDevice, D: DeviceDescription> {
     NotConnected(MacAddress),

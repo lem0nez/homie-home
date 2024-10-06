@@ -1,14 +1,11 @@
 use std::{ops::Deref, sync::Arc};
 
-use async_graphql::Subscription;
+use async_graphql::{Result, Subscription};
 use async_stream::stream;
 use futures::Stream;
 
-use crate::{
-    bluetooth,
-    device::{description, mi_temp_monitor},
-    App,
-};
+use super::GraphQLError;
+use crate::{device::mi_temp_monitor, App};
 
 pub struct SubscriptionRoot(pub(super) App);
 
@@ -16,18 +13,17 @@ pub struct SubscriptionRoot(pub(super) App);
 impl SubscriptionRoot {
     async fn lounge_temp_monitor_data(
         &self,
-    ) -> Result<
-        impl Stream<Item = Option<mi_temp_monitor::Data>>,
-        bluetooth::DeviceAccessError<description::LoungeTempMonitor>,
-    > {
+    ) -> Result<impl Stream<Item = Option<mi_temp_monitor::Data>>> {
         self.bluetooth
             .ensure_connected_and_healthy(Arc::clone(&self.lounge_temp_monitor))
-            .await?;
+            .await
+            .map_err(GraphQLError::extend)?;
         let (shared_data, notify) = self
             .lounge_temp_monitor
             .read()
             .await
-            .get_connected()?
+            .get_connected()
+            .map_err(GraphQLError::extend)?
             .data_notify();
 
         let mut last_data = *shared_data.lock().await;

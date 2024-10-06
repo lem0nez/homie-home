@@ -4,7 +4,7 @@ use futures::TryFutureExt;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
-use crate::App;
+use crate::{graphql::GraphQLError, App};
 
 #[derive(Clone, Copy, Deserialize, Serialize, async_graphql::SimpleObject)]
 pub struct Preferences {
@@ -27,13 +27,16 @@ pub struct PreferencesUpdate {
     hotspot_handling_enabled: Option<bool>,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, strum::AsRefStr, thiserror::Error)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum PreferencesUpdateError {
     #[error("failed to serialize preferences into YAML: {0}")]
     SerializationFailed(serde_yaml::Error),
     #[error("failed to save preferences to file: {0}")]
     FailedToSave(io::Error),
 }
+
+impl GraphQLError for PreferencesUpdateError {}
 
 pub struct PreferencesStorage {
     preferences: Preferences,

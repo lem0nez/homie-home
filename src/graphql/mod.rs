@@ -2,7 +2,9 @@ mod mutation;
 mod query;
 mod subscription;
 
-use async_graphql::{http::GraphiQLSource, Schema};
+use std::fmt::Display;
+
+use async_graphql::{http::GraphiQLSource, Error, ErrorExtensions, Schema};
 
 use crate::App;
 use mutation::MutationRoot;
@@ -27,4 +29,11 @@ pub fn build_playground() -> GraphQLPlayground {
         .subscription_endpoint("/api/graphql")
         .title("Homie GraphQL")
         .finish()
+}
+
+pub trait GraphQLError: AsRef<str> + Display + Sized {
+    fn extend(self) -> Error {
+        // Include error identifier.
+        self.extend_with(|_, extension_values| extension_values.set("code", self.as_ref()))
+    }
 }

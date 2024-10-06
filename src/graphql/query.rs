@@ -1,13 +1,9 @@
 use std::{ops::Deref, sync::Arc};
 
-use async_graphql::Object;
+use async_graphql::{Object, Result};
 
-use crate::{
-    bluetooth,
-    device::{description, mi_temp_monitor},
-    prefs::Preferences,
-    App,
-};
+use super::GraphQLError;
+use crate::{device::mi_temp_monitor, prefs::Preferences, App};
 
 pub struct QueryRoot(pub(super) App);
 
@@ -17,20 +13,17 @@ impl QueryRoot {
         **self.prefs.read().await
     }
 
-    async fn lounge_temp_monitor_data(
-        &self,
-    ) -> Result<
-        Option<mi_temp_monitor::Data>,
-        bluetooth::DeviceAccessError<description::LoungeTempMonitor>,
-    > {
+    async fn lounge_temp_monitor_data(&self) -> Result<Option<mi_temp_monitor::Data>> {
         self.bluetooth
             .ensure_connected_and_healthy(Arc::clone(&self.lounge_temp_monitor))
-            .await?;
+            .await
+            .map_err(GraphQLError::extend)?;
         Ok(self
             .lounge_temp_monitor
             .read()
             .await
-            .get_connected()?
+            .get_connected()
+            .map_err(GraphQLError::extend)?
             .last_data()
             .await)
     }

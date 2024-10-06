@@ -1,26 +1,22 @@
 use std::ops::Deref;
 
-use async_graphql::Object;
+use async_graphql::{Object, Result};
 
-use crate::{
-    prefs::{PreferencesUpdate, PreferencesUpdateError},
-    App,
-};
+use super::GraphQLError;
+use crate::{prefs::PreferencesUpdate, App};
 
 pub struct MutationRoot(pub(super) App);
 
 #[Object]
 impl MutationRoot {
-    async fn update_preferences(
-        &self,
-        update: PreferencesUpdate,
-    ) -> Result<bool, PreferencesUpdateError> {
+    async fn update_preferences(&self, update: PreferencesUpdate) -> Result<bool> {
         self.prefs
             .write()
             .await
             .update((*self).clone(), update)
             .await
             .map(|_| true)
+            .map_err(GraphQLError::extend)
     }
 }
 
