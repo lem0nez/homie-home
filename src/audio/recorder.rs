@@ -287,6 +287,7 @@ struct ProcessingLoopInput<'a> {
     samples_rx: std_mpsc::Receiver<Result<Vec<FLACSampleMax>, StreamError>>,
 }
 
+// TODO: add an option for the silence trimming.
 fn processing_loop(mut input: ProcessingLoopInput) -> Result<(), RecordError> {
     let mut total_samples_per_channel = 0;
     let mut result = loop {

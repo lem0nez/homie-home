@@ -13,6 +13,7 @@ use crate::files::{AssetsDir, DataDir};
 const YAML_FILE_LOCATION: &str = "/etc/homie-home.yaml";
 const ENV_PREFIX: &str = "HOMIE_";
 
+// TODO: make it cheap for cloning using `Arc`.
 #[derive(Clone, Deserialize, Validate)]
 #[serde(default)]
 pub struct Config {
