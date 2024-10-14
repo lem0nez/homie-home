@@ -21,7 +21,7 @@ use flac_bound::{FlacEncoder, FlacEncoderConfig, FlacEncoderState};
 use log::{error, info};
 use tokio::{sync::mpsc as tokio_mpsc, task};
 
-use crate::{config, core::ShutdownNotify};
+use crate::{audio, config, core::ShutdownNotify};
 
 /// Sample type of the maximum size which is used in the [flac_bound] library.
 type FLACSampleMax = i32;
@@ -124,10 +124,8 @@ impl Recorder {
             .next()
         {
             info!(
-                "Selected input stream format: {} channel(s), sample rate {:.1} kHz ({})",
-                stream_config.channels(),
-                stream_config.sample_rate().0 as f32 / 1000.0,
-                stream_config.sample_format(),
+                "Selected input stream format: {}",
+                audio::stream_info(&stream_config)
             );
             Ok(Self {
                 device,

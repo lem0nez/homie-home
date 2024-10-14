@@ -836,6 +836,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "claxon"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bfbf56724aa9eca8afa4fcfadeb479e722935bb2a0900c2d37e0cc477af0688"
+
+[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1409,6 +1415,7 @@ dependencies = [
  "futures",
  "log",
  "metaflac",
+ "rodio",
  "serde",
  "serde_valid",
  "serde_yaml",
@@ -1420,6 +1427,12 @@ dependencies = [
  "uuid",
  "zbus",
 ]
+
+[[package]]
+name = "hound"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
 
 [[package]]
 name = "http"
@@ -2359,6 +2372,17 @@ name = "regex-syntax"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a66a03ae7c801facd77a29370b4faec201768915ac14a721ba36f20bc9c209b"
+
+[[package]]
+name = "rodio"
+version = "0.19.0"
+source = "git+https://github.com/lem0nez/rodio.git?branch=v0.19.0-patch#f6f861e5b8cad76859caba15318bc0b1f6c3148c"
+dependencies = [
+ "claxon",
+ "cpal",
+ "hound",
+ "thiserror",
+]
 
 [[package]]
 name = "rustc-demangle"

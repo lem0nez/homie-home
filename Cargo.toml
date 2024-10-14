@@ -51,12 +51,16 @@ async-graphql = { version = "7.0.7", features = [
 ], default-features = false }
 async-graphql-actix-web = "7.0.7"
 
-# To play / record the piano audio.
 cpal = "0.15.3"
 # Used to store records.
 flac-bound = "0.3.0"
 # Embed metadata into the records.
 metaflac = "0.2.7"
+# See a commit to know why the fork is required: https://github.com/lem0nez/rodio/commit/f6f861e.
+rodio = { git = "https://github.com/lem0nez/rodio.git", branch = "v0.19.0-patch", features = [
+    "flac",
+    "wav",
+], default-features = false }
 
 bluez-async = "0.7.2"
 chrono = { version = "0.4.38", default-features = false }

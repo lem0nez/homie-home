@@ -4,7 +4,10 @@ use cpal::traits::{DeviceTrait, HostTrait};
 use log::{error, info, warn};
 
 use crate::{
-    audio::recorder::Recorder, bluetooth::A2DPSourceHandler, config, core::ShutdownNotify,
+    audio::{player::Player, recorder::Recorder},
+    bluetooth::A2DPSourceHandler,
+    config,
+    core::ShutdownNotify,
     SharedMutex,
 };
 
@@ -130,6 +133,7 @@ impl Piano {
         if self.a2dp_source_handler.has_connected().await {
             if inner.device.is_some() {
                 inner.device = None;
+                inner.player = None;
                 inner.recorder = None;
                 info!("Audio device released");
             }
@@ -154,6 +158,13 @@ impl Piano {
                 }
             },
         };
+
+        if inner.player.is_none() {
+            match Player::new(device.clone()).await {
+                Ok(player) => inner.player = Some(player),
+                Err(e) => error!("Player initialization failed: {e}"),
+            }
+        }
 
         if inner.recorder.is_none() {
             match Recorder::new(
@@ -223,6 +234,8 @@ struct InnerInitialized {
     devpath: OsString,
     /// Will be [None] if audio device is in use now.
     device: Option<cpal::Device>,
+    /// Set to [None] if `device` is not set or if player initialization failed.
+    player: Option<Player>,
     /// Will be [None] if `device` is not set or if the stream input with
     /// the provided [config::Recorder] configuration is not available.
     recorder: Option<Recorder>,
@@ -233,6 +246,7 @@ impl InnerInitialized {
         Self {
             devpath,
             device: None,
+            player: None,
             recorder: None,
         }
     }
