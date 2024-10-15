@@ -205,12 +205,12 @@ impl Piano {
             .await;
 
         match result {
-            Ok((mut inner_lock, device, stream_config)) => {
+            Ok((mut inner_lock, device, default_stream_config)) => {
                 info!(
                     "Output stream format: {}",
-                    audio::stream_info(&stream_config)
+                    audio::stream_info(&default_stream_config)
                 );
-                match Player::new(device, stream_config).await {
+                match Player::new(device, default_stream_config).await {
                     // Unwrapping because inner checked in the backoff operation
                     // and it can't be changed as inner is locked.
                     Ok(player) => inner_lock.as_mut().unwrap().player = Some(player),

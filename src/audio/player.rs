@@ -23,10 +23,10 @@ pub struct PlaybackProperties {
     ///
     /// If sink is _primary_, playback will be resumed (if paused) and
     /// currently playing audio (if has) will be replaced.
-    secondary: bool,
+    pub secondary: bool,
     /// Multiplier for samples.
-    volume: f32,
-    source_props: AudioSourceProperties,
+    pub volume: f32,
+    pub source_props: AudioSourceProperties,
 }
 
 impl Default for PlaybackProperties {

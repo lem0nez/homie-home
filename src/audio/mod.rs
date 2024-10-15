@@ -26,9 +26,9 @@ pub enum AudioSourceError {
 #[derive(Default)]
 pub struct AudioSourceProperties {
     /// Whether to apply the fade in effect with the provided duration.
-    fade_in: Option<Duration>,
+    pub fade_in: Option<Duration>,
     /// Whether to repeat an audio source forever.
-    repeat: bool,
+    pub repeat: bool,
 }
 
 /// Every modification of a source leads to the new object with different type.
