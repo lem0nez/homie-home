@@ -18,7 +18,7 @@ use tokio::{sync::RwLock, task::AbortHandle};
 use uuid::Uuid;
 
 use crate::{
-    config::{self, bluetooth_backoff},
+    config,
     dbus::DBus,
     device::{BluetoothDevice, DeviceDescription},
     graphql::GraphQLError,
@@ -155,7 +155,7 @@ impl Bluetooth {
                 .map(|adapter| format!("adapter {}", adapter.name))
                 .unwrap_or("any adapter".to_string())
         );
-        backoff::future::retry(bluetooth_backoff::adapter_wait(), || async {
+        backoff::future::retry(config::backoff::bluetooth_adapter_wait(), || async {
             let adapters = if let Some(adapter) = &self.adapter {
                 self.session
                     .get_adapter_info(&adapter.id)
@@ -266,15 +266,16 @@ impl Bluetooth {
             let short_device_info = device_short_info(&found_device);
             info!("Connecting to {short_device_info}...");
 
-            let result = backoff::future::retry(bluetooth_backoff::device_connect(), || async {
-                T::connect(found_device.clone(), &self.session)
-                    .await
-                    .map_err(|err| {
-                        warn!("Got error \"{err}\" while connecting; retrying...");
-                        backoff::Error::transient(err)
-                    })
-            })
-            .await;
+            let result =
+                backoff::future::retry(config::backoff::bluetooth_device_connect(), || async {
+                    T::connect(found_device.clone(), &self.session)
+                        .await
+                        .map_err(|err| {
+                            warn!("Got error \"{err}\" while connecting; retrying...");
+                            backoff::Error::transient(err)
+                        })
+                })
+                .await;
 
             match result {
                 Ok(device_result) => {
@@ -561,7 +562,7 @@ async fn handle_event(event: BluetoothEvent, session: &BluetoothSession, app: &A
 
 /// Wait until ANY (may be not all) adapter is available and then return a list of them.
 async fn wait_for_adapters(session: &BluetoothSession) -> Result<Vec<AdapterInfo>, BluetoothError> {
-    backoff::future::retry(bluetooth_backoff::adapter_wait(), || async {
+    backoff::future::retry(config::backoff::bluetooth_adapter_wait(), || async {
         match session.get_adapters().await {
             Ok(adapters) => {
                 if adapters.is_empty() {

@@ -43,6 +43,8 @@ macro_rules! append_source_to_sink {
             }
         } else if $properties.repeat {
             $sink.append($source.repeat_infinite())
+        } else {
+            $sink.append($source)
         }
     };
 }

@@ -105,6 +105,8 @@ impl Default for Piano {
             // Comparing to `hw`, `plughw` uses software conversions at the driver level
             // (re-buffering, sample rate conversion, etc). Also the driver author has
             // probably optimized performance of the device with some driver level conversions.
+            //
+            // If such conversions are not required, you can use the `hw` plugin.
             alsa_plugin: "plughw".to_string(),
             recorder: Recorder::default(),
         }
@@ -143,13 +145,13 @@ impl Config {
     }
 }
 
-pub mod bluetooth_backoff {
+pub mod backoff {
     use std::time::Duration;
 
     type ExponentialBackoff = backoff::exponential::ExponentialBackoff<backoff::SystemClock>;
 
     /// Used for waiting until an adapter will be available or powered on.
-    pub fn adapter_wait() -> ExponentialBackoff {
+    pub fn bluetooth_adapter_wait() -> ExponentialBackoff {
         ExponentialBackoff {
             initial_interval: Duration::from_millis(100),
             max_interval: Duration::from_millis(500),
@@ -160,11 +162,24 @@ pub mod bluetooth_backoff {
     }
 
     /// Used when trying to connect to device.
-    pub fn device_connect() -> ExponentialBackoff {
+    pub fn bluetooth_device_connect() -> ExponentialBackoff {
         ExponentialBackoff {
             initial_interval: Duration::from_secs(1),
             max_interval: Duration::from_secs(5),
             max_elapsed_time: Some(Duration::from_secs(30)),
+            randomization_factor: 0.0,
+            ..Default::default()
+        }
+    }
+
+    /// We need to wait, for example, after a Bluetooth A2DP source is disconnected:
+    /// supported output stream configurations become available only in some time.
+    pub fn audio_output_stream_wait() -> ExponentialBackoff {
+        ExponentialBackoff {
+            initial_interval: Duration::from_millis(100),
+            multiplier: 5.0,
+            max_interval: Duration::from_secs(1),
+            max_elapsed_time: Some(Duration::from_secs(8)),
             randomization_factor: 0.0,
             ..Default::default()
         }

@@ -4,7 +4,7 @@ use cpal::traits::{DeviceTrait, HostTrait};
 use log::{error, info, warn};
 
 use crate::{
-    audio::{player::Player, recorder::Recorder},
+    audio::{self, player::Player, recorder::Recorder},
     bluetooth::A2DPSourceHandler,
     config,
     core::ShutdownNotify,
@@ -160,10 +160,9 @@ impl Piano {
         };
 
         if inner.player.is_none() {
-            match Player::new(device.clone()).await {
-                Ok(player) => inner.player = Some(player),
-                Err(e) => error!("Player initialization failed: {e}"),
-            }
+            let shared_inner = Arc::clone(&self.inner);
+            // It may take a long time retrying to get the output stream configuration.
+            tokio::spawn(async { Self::init_player(shared_inner).await });
         }
 
         if inner.recorder.is_none() {
@@ -175,6 +174,51 @@ impl Piano {
                 Ok(recorder) => inner.recorder = Some(recorder),
                 Err(e) => error!("Failed to initialize the recorder: {e}"),
             };
+        }
+    }
+
+    async fn init_player(inner: SharedMutex<Option<InnerInitialized>>) {
+        info!("Retrieving the default output stream format...");
+        let result =
+            backoff::future::retry(config::backoff::audio_output_stream_wait(), || async {
+                let inner_lock = inner.lock().await;
+                inner_lock
+                    .as_ref()
+                    .and_then(|inner| {
+                        if inner.player.is_none() {
+                            inner.device.clone()
+                        } else {
+                            None
+                        }
+                    })
+                    // We don't need to proceed (by returning `None`) if:
+                    // 1. piano disconnected
+                    // 2. audio device is busy
+                    // 3. player initialized from another thread
+                    .map_or(Err(backoff::Error::permanent(None)), |device| {
+                        device
+                            .default_output_config()
+                            .map(|config| (inner_lock, device, config))
+                            .map_err(|err| backoff::Error::transient(Some(err)))
+                    })
+            })
+            .await;
+
+        match result {
+            Ok((mut inner_lock, device, stream_config)) => {
+                info!(
+                    "Output stream format: {}",
+                    audio::stream_info(&stream_config)
+                );
+                match Player::new(device, stream_config).await {
+                    // Unwrapping because inner checked in the backoff operation
+                    // and it can't be changed as inner is locked.
+                    Ok(player) => inner_lock.as_mut().unwrap().player = Some(player),
+                    Err(e) => error!("Player initialization failed: {e}"),
+                }
+            }
+            Err(Some(err)) => error!("Failed to get the default output format: {err}"),
+            Err(None) => warn!("Player initialization skipped as it's not required anymore"),
         }
     }
 

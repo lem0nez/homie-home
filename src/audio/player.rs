@@ -1,16 +1,14 @@
-use cpal::{DefaultStreamConfigError, Device, Sample};
+use cpal::{Device, Sample, SupportedStreamConfig};
 use log::{error, info};
-use rodio::{DeviceTrait, OutputStream, OutputStreamHandle, PlayError, Sink, StreamError};
+use rodio::{OutputStream, OutputStreamHandle, PlayError, Sink, StreamError};
 use tokio::{sync::mpsc, task};
 
-use crate::audio::{self, AudioSource, AudioSourceProperties};
+use crate::audio::{AudioSource, AudioSourceProperties};
 
 type PlayerResult<T> = Result<T, PlayerError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlayerError {
-    #[error("unable to get the default output stream configuration: {0}")]
-    RequestStreamConfig(DefaultStreamConfigError),
     #[error("failed to create an output stream: {0}")]
     CreateOutputStream(StreamError),
     #[error("failed to create a sink: {0}")]
@@ -64,17 +62,10 @@ pub struct Player {
 }
 
 impl Player {
-    /// Create a player using the default output stream for `device`.
-    pub async fn new(device: Device) -> PlayerResult<Self> {
-        let stream_config = match device.default_output_config() {
-            Ok(config) => config,
-            Err(e) => return Err(PlayerError::RequestStreamConfig(e)),
-        };
-        info!(
-            "Selected output stream format: {}",
-            audio::stream_info(&stream_config)
-        );
-
+    pub async fn new(
+        device: Device,
+        output_stream_config: SupportedStreamConfig,
+    ) -> PlayerResult<Self> {
         let (command_tx, mut command_rx) = mpsc::channel::<Command>(1);
         let (result_tx, mut result_rx) = mpsc::channel(1);
 
@@ -85,7 +76,7 @@ impl Player {
             };
 
             let (_stream, stream_handle) =
-                match OutputStream::try_from_device_config(&device, stream_config) {
+                match OutputStream::try_from_device_config(&device, output_stream_config) {
                     Ok(result) => result,
                     Err(e) => return send_error(PlayerError::CreateOutputStream(e)),
                 };
