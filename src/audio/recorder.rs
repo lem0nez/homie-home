@@ -14,7 +14,7 @@ use std::{
 use anyhow::anyhow;
 use cpal::{
     traits::{DeviceTrait, StreamTrait},
-    BuildStreamError, Device, PlayStreamError, StreamError, SupportedStreamConfig,
+    BuildStreamError, Device, PlayStreamError, SampleFormat, StreamError, SupportedStreamConfig,
     SupportedStreamConfigsError,
 };
 use flac_bound::{FlacEncoder, FlacEncoderConfig, FlacEncoderState};
@@ -197,18 +197,34 @@ impl Recorder {
                 }
             };
 
+            let build_config = &stream_config.config();
             let (samples_tx, samples_rx) = std_mpsc::channel();
             let err_tx = samples_tx.clone();
-            let stream = device.build_input_stream(
-                &stream_config.clone().into(),
-                move |samples: &[FLACSampleMax], _| {
-                    let _ = samples_tx.send(Ok(samples.to_vec()));
-                },
-                move |err| {
-                    let _ = err_tx.send(Err(err));
-                },
-                None,
-            );
+            let err_callback = move |err| {
+                let _ = err_tx.send(Err(err));
+            };
+
+            let stream = match stream_config.sample_format() {
+                SampleFormat::I8 => device.build_input_stream(
+                    build_config,
+                    move |samples: &[i8], _| send_samples(samples, &samples_tx),
+                    err_callback,
+                    None,
+                ),
+                SampleFormat::I16 => device.build_input_stream(
+                    build_config,
+                    move |samples: &[i16], _| send_samples(samples, &samples_tx),
+                    err_callback,
+                    None,
+                ),
+                SampleFormat::I32 => device.build_input_stream(
+                    build_config,
+                    move |samples: &[i32], _| send_samples(samples, &samples_tx),
+                    err_callback,
+                    None,
+                ),
+                _ => panic!("unsupported stream format is not filtered out"),
+            };
             let stream = match stream {
                 Ok(stream) => stream,
                 Err(e) => {
@@ -275,6 +291,15 @@ impl Drop for Recorder {
     }
 }
 
+type SamplesResult = Result<Vec<FLACSampleMax>, StreamError>;
+
+fn send_samples<T>(samples: &[T], tx: &std_mpsc::Sender<SamplesResult>)
+where
+    T: Copy + Into<FLACSampleMax>,
+{
+    let _ = tx.send(Ok(samples.iter().copied().map(T::into).collect()));
+}
+
 struct ProcessingLoopInput<'a> {
     /// Using it because in [cpal::StreamConfig] sample format is omitted.
     stream_config: SupportedStreamConfig,
@@ -282,7 +307,7 @@ struct ProcessingLoopInput<'a> {
     encoder: FlacEncoder<'a>,
     shutdown_notify: ShutdownNotify,
     stop_trigger: Arc<AtomicBool>,
-    samples_rx: std_mpsc::Receiver<Result<Vec<FLACSampleMax>, StreamError>>,
+    samples_rx: std_mpsc::Receiver<SamplesResult>,
 }
 
 // TODO: add an option for the silence trimming.
