@@ -10,7 +10,7 @@ use serde_valid::Validate;
 
 use crate::files::{AssetsDir, DataDir};
 
-const YAML_FILE_LOCATION: &str = "/etc/homie-home.yaml";
+const YAML_FILE_LOCATION: &str = concat!("/etc/", env!("CARGO_PKG_NAME"), ".yaml");
 const ENV_PREFIX: &str = "HOMIE_";
 
 // TODO: make it cheap for cloning using `Arc`.
@@ -42,7 +42,7 @@ impl Default for Config {
             server_port: 80,
             log_level: LevelFilter::Info,
             assets_dir: AssetsDir::unset(),
-            data_dir: Path::new("/var/lib/homie-home").into(),
+            data_dir: Path::new(concat!("/var/lib/", env!("CARGO_PKG_NAME"))).into(),
             access_token: None,
             bluetooth: Bluetooth::default(),
             hotspot: None,
