@@ -42,9 +42,10 @@ impl Default for PlaybackProperties {
 #[derive(strum::Display)]
 enum Command {
     Play(AudioSource, PlaybackProperties),
-    ResumePrimary,
-    PausePrimary,
-    StopPrimary,
+    // The following three commands applicable for the primary sink only.
+    Resume,
+    Pause,
+    Stop,
 }
 
 enum Response {
@@ -116,36 +117,33 @@ impl Player {
         source: AudioSource,
         props: PlaybackProperties,
     ) -> PlayerResult<()> {
-        self.do_command(Command::Play(source, props))
-            .await
-            .map(|_| ())
+        self.perform(Command::Play(source, props)).await.map(|_| ())
     }
 
-    pub async fn resume_primary(&mut self) -> PlayerResult<bool> {
-        self.do_primary_playback_command(Command::ResumePrimary)
-            .await
+    /// Resume the **primary** playback.
+    pub async fn resume(&mut self) -> PlayerResult<bool> {
+        self.control_primary_playback(Command::Resume).await
     }
 
-    pub async fn pause_primary(&mut self) -> PlayerResult<bool> {
-        self.do_primary_playback_command(Command::PausePrimary)
-            .await
+    /// Pause the **primary** playback.
+    pub async fn pause(&mut self) -> PlayerResult<bool> {
+        self.control_primary_playback(Command::Pause).await
     }
 
-    pub async fn stop_primary(&mut self) -> PlayerResult<bool> {
-        self.do_primary_playback_command(Command::StopPrimary).await
+    /// Stop the **primary** playback.
+    pub async fn stop(&mut self) -> PlayerResult<bool> {
+        self.control_primary_playback(Command::Stop).await
     }
 
     /// Returns `true` if some action was performed.
-    async fn do_primary_playback_command(&mut self, command: Command) -> PlayerResult<bool> {
-        self.do_command(command)
-            .await
-            .map(|response| match response {
-                Response::PrimaryPlayback(status) => status,
-                _ => panic!("playback response expected"),
-            })
+    async fn control_primary_playback(&mut self, command: Command) -> PlayerResult<bool> {
+        self.perform(command).await.map(|response| match response {
+            Response::PrimaryPlayback(status) => status,
+            _ => panic!("primary playback response expected"),
+        })
     }
 
-    async fn do_command(&mut self, command: Command) -> PlayerResult<Response> {
+    async fn perform(&mut self, command: Command) -> PlayerResult<Response> {
         self.command_tx
             .send(command)
             .await
@@ -183,7 +181,7 @@ fn handle_command(
             }
             Ok(Response::PlayStarted)
         }
-        Command::ResumePrimary => Ok(Response::PrimaryPlayback(
+        Command::Resume => Ok(Response::PrimaryPlayback(
             if !primary_sink.is_paused() || primary_sink.empty() {
                 false
             } else {
@@ -191,7 +189,7 @@ fn handle_command(
                 true
             },
         )),
-        Command::PausePrimary => Ok(Response::PrimaryPlayback(
+        Command::Pause => Ok(Response::PrimaryPlayback(
             if primary_sink.is_paused() || primary_sink.empty() {
                 false
             } else {
@@ -199,7 +197,7 @@ fn handle_command(
                 true
             },
         )),
-        Command::StopPrimary => Ok(Response::PrimaryPlayback(if primary_sink.empty() {
+        Command::Stop => Ok(Response::PrimaryPlayback(if primary_sink.empty() {
             false
         } else {
             primary_sink.stop();
