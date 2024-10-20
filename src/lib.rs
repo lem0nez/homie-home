@@ -15,8 +15,10 @@ mod prefs;
 use std::sync::Arc;
 
 use anyhow::Context;
+use log::info;
 use tokio::sync::{Mutex, RwLock};
 
+use audio::SoundLibrary;
 use bluetooth::{A2DPSourceHandler, Bluetooth, DeviceHolder};
 use config::Config;
 use core::ShutdownNotify;
@@ -38,6 +40,7 @@ pub type SharedRwLock<T> = Arc<RwLock<T>>;
 pub struct App {
     pub config: Config,
     pub prefs: SharedRwLock<PreferencesStorage>,
+    pub sounds: SoundLibrary,
     pub shutdown_notify: ShutdownNotify,
 
     pub dbus: DBus,
@@ -67,6 +70,11 @@ impl App {
                     )
                 })?,
         ));
+
+        info!("Loading sounds...");
+        let sounds =
+            SoundLibrary::load(&config.assets_dir).with_context(|| "Unable to load sounds")?;
+        info!("Sounds loaded");
 
         let shutdown_notify =
             ShutdownNotify::listen().with_context(|| "Unable to listen for shutdown signals")?;
@@ -98,6 +106,7 @@ impl App {
         Ok(Self {
             config,
             prefs,
+            sounds,
             shutdown_notify,
 
             dbus,

@@ -59,6 +59,7 @@ server_port: 80
 log_level: INFO
 # [REQUIRED] Directory with read-only resources. It has the following structure:
 #   site/ - directory with static files to host on "/"
+#   sounds/ - sound effects (see files.rs to review the list of files)
 assets_dir: /path/to/assets
 # Directory where to store user preferences, database and other data.
 data_dir: /var/lib/homie-home

@@ -2,14 +2,19 @@ pub mod player;
 pub mod recorder;
 
 use std::{
+    collections::HashMap,
     fs::{self, File},
     io::{self, BufReader, Cursor},
     path::Path,
+    sync::Arc,
     time::Duration,
 };
 
 use cpal::SupportedStreamConfig;
 use rodio::{decoder::DecoderError, source, Decoder, Sink, Source};
+use strum::IntoEnumIterator;
+
+use crate::files::{Asset, AssetsDir, BaseDir, Sound};
 
 type BufferedDecoder<T> = source::Buffered<Decoder<T>>;
 
@@ -84,6 +89,27 @@ impl AudioSource {
             }
             AudioSource::Memory(cursor) => append_source_to_sink!(sink, cursor, properties),
         };
+    }
+}
+
+#[derive(Clone)]
+pub struct SoundLibrary(Arc<HashMap<Sound, AudioSource>>);
+
+impl SoundLibrary {
+    /// Pre-load all sounds into the memory.
+    pub fn load(assets_dir: &AssetsDir) -> Result<Self, AudioSourceError> {
+        let mut sounds = HashMap::new();
+        for sound in Sound::iter() {
+            sounds.insert(
+                sound,
+                AudioSource::new_loaded(&assets_dir.path(Asset::Sound(sound)))?,
+            );
+        }
+        Ok(Self(Arc::new(sounds)))
+    }
+
+    pub fn get(&self, sound: Sound) -> AudioSource {
+        self.0.get(&sound).expect("not all sounds loaded").clone()
     }
 }
 

@@ -13,9 +13,21 @@ pub trait BaseDir<'a, T>: Clone + Deserialize<'a> + Validate {
     fn path(&self, item: T) -> PathEntry;
 }
 
-#[derive(EnumIter)]
+// ATTENTION: do not forget to update the `Validate`
+// implementation when you add a new variant.
 pub enum Asset {
     Site,
+    Sound(Sound),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, strum::Display, EnumIter)]
+#[strum(serialize_all = "kebab-case")]
+pub enum Sound {
+    Error,
+    PauseResume,
+    Play,
+    RecordStart,
+    RecordStop,
 }
 
 /// Read-only resources.
@@ -30,8 +42,14 @@ impl AssetsDir {
 
 impl BaseDir<'_, Asset> for AssetsDir {
     fn path(&self, item: Asset) -> PathEntry {
+        const SOUNDS_EXTENSION: &str = ".wav";
+
         let (relative_path, kind) = match item {
-            Asset::Site => ("site", EntryKind::Directory),
+            Asset::Site => ("site".into(), EntryKind::Directory),
+            Asset::Sound(sound) => (
+                Path::new("sounds").join(sound.to_string() + SOUNDS_EXTENSION),
+                EntryKind::File,
+            ),
         };
         PathEntry {
             path: self.0.join(relative_path),
@@ -49,13 +67,18 @@ impl Validate for AssetsDir {
             requirement: Some(EntryRequirement::Exists),
         }
         .validate()?;
-        Asset::iter().try_for_each(|asset| self.path(asset).validate())
+
+        [Asset::Site]
+            .into_iter()
+            .try_for_each(|asset| self.path(asset).validate())?;
+        Sound::iter().try_for_each(|sound| self.path(Asset::Sound(sound)).validate())
     }
 }
 
 #[derive(EnumIter)]
 pub enum Data {
     Preferences,
+    PianoRecords,
 }
 
 /// A directory where the server stores all the data.
@@ -66,6 +89,11 @@ impl BaseDir<'_, Data> for DataDir {
     fn path(&self, item: Data) -> PathEntry {
         let (relative_path, kind, requirement) = match item {
             Data::Preferences => ("prefs.yaml", EntryKind::File, None),
+            Data::PianoRecords => (
+                "piano-records",
+                EntryKind::Directory,
+                Some(EntryRequirement::WritableOrCreate),
+            ),
         };
         PathEntry {
             path: self.0.join(relative_path),
