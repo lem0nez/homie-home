@@ -23,6 +23,8 @@ use tokio::{sync::mpsc as tokio_mpsc, task};
 
 use crate::{audio, config, core::ShutdownNotify};
 
+pub const RECORDING_EXTENSION: &str = ".flac";
+
 /// Sample type of the maximum size which is used in the [flac_bound] library.
 type FLACSampleMax = i32;
 /// Maximum interval between checks whether audio processing should be stopped.
@@ -83,16 +85,16 @@ pub struct Recorder {
     /// Used to stop recording if the program is terminating.
     shutdown_notify: ShutdownNotify,
     /// Set to [Some] if recording is in process.
-    recording_handlers: Option<RecordingHandlers>,
+    record_handlers: Option<RecordHandlers>,
 }
 
-struct RecordingHandlers {
+struct RecordHandlers {
     status_rx: tokio_mpsc::Receiver<StatusMessage>,
     // Stop trigger initiates by the caller to be handled by the processing thread.
     stop_trigger: Arc<AtomicBool>,
 }
 
-impl RecordingHandlers {
+impl RecordHandlers {
     fn new() -> (Self, tokio_mpsc::Sender<StatusMessage>) {
         let (status_tx, status_rx) = tokio_mpsc::channel(1);
         (
@@ -133,7 +135,7 @@ impl Recorder {
                 flac_compression_level: config.flac_compression_level,
 
                 shutdown_notify,
-                recording_handlers: None,
+                record_handlers: None,
             })
         } else {
             Err(anyhow!("no FLAC-supported input stream formats"))
@@ -143,7 +145,7 @@ impl Recorder {
     /// Start capturing to the given `out_flac` FLAC file.
     /// This file will be created, so it must **not** exists.
     pub async fn start(&mut self, out_flac: &Path) -> Result<(), RecordError> {
-        if self.recording_handlers.is_some() {
+        if self.record_handlers.is_some() {
             return Err(RecordError::AlreadyRecording);
         }
 
@@ -156,7 +158,7 @@ impl Recorder {
             (self.stream_config.clone(), self.flac_compression_level);
 
         let shutdown_notify = self.shutdown_notify.clone();
-        let (mut handlers, status_tx) = RecordingHandlers::new();
+        let (mut handlers, status_tx) = RecordHandlers::new();
         let stop_trigger = Arc::clone(&handlers.stop_trigger);
 
         task::spawn_blocking(move || {
@@ -258,7 +260,7 @@ impl Recorder {
         match handlers.status_rx.recv().await {
             Some(StatusMessage::Error(e)) => Err(e),
             Some(StatusMessage::Initialized) => {
-                self.recording_handlers = Some(handlers);
+                self.record_handlers = Some(handlers);
                 Ok(())
             }
             Some(StatusMessage::Finished) => panic!("it can not finish before initializing"),
@@ -267,7 +269,7 @@ impl Recorder {
     }
 
     pub async fn stop(&mut self) -> Result<(), RecordError> {
-        if let Some(mut handlers) = self.recording_handlers.take() {
+        if let Some(mut handlers) = self.record_handlers.take() {
             handlers.stop_trigger.store(true, atomic::Ordering::Relaxed);
             match handlers.status_rx.recv().await {
                 Some(StatusMessage::Error(e)) => Err(e),
@@ -285,7 +287,7 @@ impl Recorder {
 
 impl Drop for Recorder {
     fn drop(&mut self) {
-        if let Some(handlers) = &self.recording_handlers {
+        if let Some(handlers) = &self.record_handlers {
             handlers.stop_trigger.store(true, atomic::Ordering::Relaxed);
         }
     }

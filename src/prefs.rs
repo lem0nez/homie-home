@@ -1,5 +1,6 @@
 use std::{fs::Permissions, io, ops::Deref, os::unix::fs::PermissionsExt, path::PathBuf};
 
+use anyhow::anyhow;
 use futures::TryFutureExt;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
@@ -47,7 +48,10 @@ impl PreferencesStorage {
     /// Deserializes `yaml_file` if it exists,
     /// otherwise writes the default preferences into the new file.
     pub async fn open(yaml_file: PathBuf) -> anyhow::Result<Self> {
-        let preferences = if yaml_file.exists() {
+        let preferences = if yaml_file
+            .try_exists()
+            .map_err(|e| anyhow!("unable to check file existence ({e})"))?
+        {
             serde_yaml::from_str(&fs::read_to_string(&yaml_file).await?)?
         } else {
             let default = Preferences::default();

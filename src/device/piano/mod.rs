@@ -1,3 +1,5 @@
+mod recordings;
+
 use std::{ffi::OsString, sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};

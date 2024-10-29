@@ -151,7 +151,10 @@ impl Validate for PathEntry {
             return Ok(());
         }
 
-        let exists = self.path.exists();
+        let exists = match self.path.try_exists() {
+            Ok(exists) => exists,
+            Err(e) => return err(format_args!("unable to check existence ({e})")),
+        };
         let (matches_kind, create_perms) = match self.kind {
             EntryKind::File => (self.path.is_file(), 0o600),
             EntryKind::Directory => (self.path.is_dir(), 0o700),
