@@ -1,17 +1,18 @@
-mod recordings;
+pub mod recordings;
 
-use std::{ffi::OsString, sync::Arc, time::Duration};
+use std::{ffi::OsString, path::Path, sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};
 use log::{error, info, warn};
 
 use crate::{
-    audio::{self, player::Player, recorder::Recorder},
+    audio::{self, player::Player, recorder::Recorder, SoundLibrary},
     bluetooth::A2DPSourceHandler,
     config,
     core::ShutdownNotify,
     SharedMutex,
 };
+use recordings::RecordingStorage;
 
 /// Delay between initializing just plugged in piano and finding its audio device.
 ///
@@ -36,24 +37,34 @@ pub struct InitParams {
 #[derive(Clone)]
 pub struct Piano {
     config: config::Piano,
+    sounds: SoundLibrary,
+
     shutdown_notify: ShutdownNotify,
     /// Used to check whether an audio device is in use by a Bluetooth device.
     a2dp_source_handler: A2DPSourceHandler,
+
     /// If the piano is not connected, it will be [None].
     inner: SharedMutex<Option<InnerInitialized>>,
+    // TODO: should recording be stopped explicitly on drop?
+    pub recording_storage: RecordingStorage,
 }
 
 impl Piano {
     pub fn new(
         config: config::Piano,
+        sounds: SoundLibrary,
         shutdown_notify: ShutdownNotify,
         a2dp_source_handler: A2DPSourceHandler,
+        recordings_dir: &Path,
     ) -> Self {
+        let recording_storage = RecordingStorage::new(recordings_dir, config.max_recordings);
         Self {
             config,
+            sounds,
             shutdown_notify,
             a2dp_source_handler,
             inner: Arc::default(),
+            recording_storage,
         }
     }
 

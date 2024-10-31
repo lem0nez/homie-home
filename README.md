@@ -96,6 +96,9 @@ piano:
   # ALSA plugin to use for audio input / output.
   # To list available plugins, run "arecord --list-pcms".
   alsa_plugin: plughw
+  # Maximum number of recordings to store.
+  # If limit is reached, starting a new recording will delete the oldest one.
+  max_recordings: 20
   # Parameters related to the audio recording. Make sure they are supported by your device.
   recorder:
     # Number of channels (default is stereo).

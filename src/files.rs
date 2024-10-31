@@ -78,7 +78,7 @@ impl Validate for AssetsDir {
 #[derive(EnumIter)]
 pub enum Data {
     Preferences,
-    PianoRecords,
+    PianoRecordings,
 }
 
 /// A directory where the server stores all the data.
@@ -89,8 +89,8 @@ impl BaseDir<'_, Data> for DataDir {
     fn path(&self, item: Data) -> PathEntry {
         let (relative_path, kind, requirement) = match item {
             Data::Preferences => ("prefs.yaml", EntryKind::File, None),
-            Data::PianoRecords => (
-                "piano-records",
+            Data::PianoRecordings => (
+                "piano-recordings",
                 EntryKind::Directory,
                 Some(EntryRequirement::WritableOrCreate),
             ),

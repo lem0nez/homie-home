@@ -19,6 +19,12 @@ use tokio::{
     sync::Notify,
 };
 
+#[derive(Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
+pub enum SortOrder {
+    Ascending,
+    Descending,
+}
+
 #[derive(Clone)]
 pub struct ShutdownNotify {
     notify: Arc<Notify>,

@@ -94,6 +94,9 @@ pub struct Piano {
         message = "must be set (run 'arecord --list-pcms' to view available)"
     )]
     pub alsa_plugin: String,
+    /// If limit is reached, starting a new recording will delete the oldest one.
+    #[validate(minimum = 1)]
+    pub max_recordings: u16,
     #[validate]
     pub recorder: Recorder,
 }
@@ -108,6 +111,7 @@ impl Default for Piano {
             //
             // If such conversions are not required, you can use the `hw` plugin.
             alsa_plugin: "plughw".to_string(),
+            max_recordings: 20,
             recorder: Recorder::default(),
         }
     }
