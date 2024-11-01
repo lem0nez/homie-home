@@ -6,7 +6,7 @@ use std::{
 };
 
 use chrono::DateTime;
-use futures::{executor, future};
+use futures::future;
 use log::{error, info};
 use tokio::{fs, io};
 
@@ -47,6 +47,7 @@ impl RecordingStorage {
             .map_err(RecordingStorageError::FileSystem)
     }
 
+    /// Returns recordings ordered by creation time.
     pub async fn list(&self, order: SortOrder) -> Result<Vec<Recording>, RecordingStorageError> {
         let mut recordings = Vec::new();
         let mut read_dir = fs::read_dir(&self.dir)
@@ -131,51 +132,29 @@ impl RecordingStorage {
             .map_err(RecordingStorageError::FileSystem)?;
 
         let self_clone = self.clone();
-        tokio::spawn(async move {
-            match self_clone.remove_oldest_if_limit_reached().await {
-                Ok(Some(removed_recording)) => info!(
-                    "Oldest recording {removed_recording} removed, because files limit reached"
-                ),
-                Err(e) => error!("Failed to remove the oldest recording: {e}"),
-                _ => {} // Limit was not reached.
-            }
-        });
-
+        tokio::spawn(async move { self_clone.remove_old_if_limit_reached().await });
         Ok(Some(new_path))
     }
 
-    /// Returns removed recording if limit was reached, otherwise [None].
-    async fn remove_oldest_if_limit_reached(
-        &self,
-    ) -> Result<Option<Recording>, RecordingStorageError> {
-        // From the oldest to the newest.
-        let recordings = self.list(SortOrder::Ascending).await?;
-        if recordings.len() <= self.max_recordings as usize {
-            return Ok(None);
+    async fn remove_old_if_limit_reached(&self) {
+        // List from the newest to the oldest.
+        let old_recordings = match self.list(SortOrder::Descending).await {
+            Ok(recordings) => recordings.into_iter().skip(self.max_recordings as usize),
+            Err(e) => return error!("Failed to list old recordings: {e}"),
+        };
+        for old_recording in old_recordings {
+            if let Err(e) = fs::remove_file(&old_recording.flac_path).await {
+                error!("Failed to remove old recording {old_recording}: {e}");
+            } else {
+                info!("Old recording {old_recording} removed, because files limit reached");
+            }
         }
-
-        let oldest_recording = recordings
-            .into_iter()
-            .next()
-            .expect("list can not be empty");
-        fs::remove_file(&oldest_recording.flac_path)
-            .await
-            .map_err(RecordingStorageError::FileSystem)?;
-        Ok(Some(oldest_recording))
     }
 
     fn active_recording_path(&self) -> PathBuf {
         let mut path = self.dir.clone();
         path.push(format!("active{RECORDING_EXTENSION}"));
         path
-    }
-}
-
-impl Drop for RecordingStorage {
-    fn drop(&mut self) {
-        if let Err(e) = executor::block_on(self.preserve_new()) {
-            error!("Failed to preserve a new recording: {e}");
-        }
     }
 }
 

@@ -53,6 +53,10 @@ struct PianoQuery<'a>(&'a Piano);
 
 #[Object]
 impl PianoQuery<'_> {
+    async fn is_connected(&self) -> bool {
+        self.0.is_connected().await
+    }
+
     async fn is_recording(&self) -> Result<bool> {
         self.recording_storage
             .is_recording()

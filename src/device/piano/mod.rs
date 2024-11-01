@@ -45,7 +45,7 @@ pub struct Piano {
 
     /// If the piano is not connected, it will be [None].
     inner: SharedMutex<Option<InnerInitialized>>,
-    // TODO: should recording be stopped explicitly on drop?
+    // TODO: on drop or piano disconnect preserve the active recording.
     pub recording_storage: RecordingStorage,
 }
 
@@ -66,6 +66,10 @@ impl Piano {
             inner: Arc::default(),
             recording_storage,
         }
+    }
+
+    pub async fn is_connected(&self) -> bool {
+        self.inner.lock().await.is_some()
     }
 
     pub async fn handle_udev_event(&self, event: &tokio_udev::Event) -> Option<HandledPianoEvent> {
