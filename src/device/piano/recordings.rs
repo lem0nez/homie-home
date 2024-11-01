@@ -17,6 +17,7 @@ use crate::{
 };
 
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum RecordingStorageError {
     #[error(transparent)]
     ReadRecording(ReadRecordingError),
