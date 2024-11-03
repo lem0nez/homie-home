@@ -2,7 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use async_graphql::{Object, Result};
 
-use super::GraphQLError;
+use super::{GraphQLError, Int64};
 use crate::{
     core::SortOrder,
     device::{
@@ -58,27 +58,43 @@ impl PianoQuery<'_> {
     }
 
     async fn is_recording(&self) -> Result<bool> {
-        self.recording_storage
+        self.0
+            .recording_storage
             .is_recording()
             .await
             .map_err(GraphQLError::extend)
     }
 
+    /// Recordings ordered by the creation time.
     async fn recordings(
         &self,
         #[graphql(default_with = "SortOrder::Descending")] order: SortOrder,
     ) -> Result<Vec<PianoRecording>> {
-        self.recording_storage
+        self.0
+            .recording_storage
             .list(order)
             .await
             .map_err(GraphQLError::extend)
     }
-}
 
-impl Deref for PianoQuery<'_> {
-    type Target = Piano;
-
-    fn deref(&self) -> &Self::Target {
+    /// If there is already playing recording, it will be stopped.
+    async fn play_recording(&self, id: Int64) -> Result<bool> {
         self.0
+            .play_recording(*id)
+            .await
+            .map(|_| true)
+            .map_err(GraphQLError::extend)
+    }
+
+    async fn is_playing(&self) -> Result<bool> {
+        self.0.is_playing().await.map_err(GraphQLError::extend)
+    }
+
+    async fn resume_player(&self) -> Result<bool> {
+        self.0.resume_player().await.map_err(GraphQLError::extend)
+    }
+
+    async fn pause_player(&self) -> Result<bool> {
+        self.0.pause_player().await.map_err(GraphQLError::extend)
     }
 }

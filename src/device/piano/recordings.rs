@@ -21,7 +21,7 @@ use crate::{
 pub enum RecordingStorageError {
     #[error("recording does not exist")]
     RecordingNotExists,
-    #[error("unable to read the recording: {0}")]
+    #[error("unable to read a recording: {0}")]
     FailedToRead(ReadRecordingError),
     #[error("file system error ({0})")]
     FileSystemError(io::Error),

@@ -18,6 +18,7 @@ use cpal::{
     SupportedStreamConfigsError,
 };
 use flac_bound::{FlacEncoder, FlacEncoderConfig, FlacEncoderState};
+use futures::executor;
 use log::{error, info};
 use tokio::{sync::mpsc as tokio_mpsc, task};
 
@@ -289,6 +290,9 @@ impl Drop for Recorder {
     fn drop(&mut self) {
         if let Some(handlers) = &mut self.record_handlers {
             handlers.stop_trigger.store(true, atomic::Ordering::Relaxed);
+            // Wait until it stop.
+            // Not using `blocking_recv` because it called inside the async runtime.
+            let _ = executor::block_on(handlers.status_rx.recv());
         }
     }
 }

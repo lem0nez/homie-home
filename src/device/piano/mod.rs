@@ -56,6 +56,8 @@ pub enum AudioError<E> {
 
 impl<E: Display> GraphQLError for AudioError<E> {}
 
+type AudioResult<T, E> = Result<T, AudioError<E>>;
+
 pub struct StopRecordingParams {
     pub triggered_by_user: bool,
 }
@@ -67,7 +69,7 @@ pub enum RecordControlError {
     AlreadyRecording,
     #[error("not recording")]
     NotRecording,
-    #[error("failed to prepare new file for the recording: {0}")]
+    #[error("failed to prepare new file for a recording: {0}")]
     PrepareFileError(RecordingStorageError),
     #[error("failed to preserve the new recording: {0}")]
     PreserveRecordingError(RecordingStorageError),
@@ -82,7 +84,7 @@ impl GraphQLError for RecordControlError {}
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum PlayRecordingError {
-    #[error("unable to get the recording: {0}")]
+    #[error("unable to get a recording: {0}")]
     GetRecording(RecordingStorageError),
     #[error("unable to make an audio source: {0}")]
     MakeAudioSource(AudioSourceError),
@@ -144,8 +146,10 @@ impl Piano {
                 })
                 .await
                 .map_err(|err| {
-                    if let Err(err) = std::fs::remove_file(out_file_clone) {
-                        error!("Failed to remove the recording output file after abort: {err}");
+                    if out_file_clone.try_exists().unwrap_or(true) {
+                        if let Err(err) = std::fs::remove_file(out_file_clone) {
+                            error!("Failed to remove the recording output file after abort: {err}");
+                        }
                     }
                     RecordControlError::Error(err)
                 })
@@ -172,16 +176,23 @@ impl Piano {
             .await
             .map_err(RecordControlError::CheckStatusFailed)?;
         if !is_recording {
+            if params.triggered_by_user {
+                self.play_sound(Sound::Error).await;
+            }
             return Err(RecordControlError::NotRecording);
         }
 
-        let stop_result = self
-            .call_recorder(|recorder| async { recorder.stop().await }.boxed())
-            .await;
-        if let Err(e) = &stop_result {
-            error!("Failed to stop recorder: {e}");
-            // Ignore it and try to preserve the recording.
-        }
+        let stop_succeed = if self.has_recorder().await {
+            let result = self
+                .call_recorder(|recorder| async { recorder.stop().await }.boxed())
+                .await;
+            if let Err(e) = &result {
+                error!("Failed to stop recorder: {e}");
+            }
+            result.is_ok()
+        } else {
+            true
+        };
 
         let result = self
             .recording_storage
@@ -190,7 +201,7 @@ impl Piano {
             .map_err(RecordControlError::PreserveRecordingError)
             .and_then(|path| path.ok_or(RecordControlError::NotRecording));
         if params.triggered_by_user {
-            self.play_sound(if stop_result.is_ok() && result.is_ok() {
+            self.play_sound(if stop_succeed && result.is_ok() {
                 Sound::RecordStop
             } else {
                 Sound::Error
@@ -240,7 +251,12 @@ impl Piano {
         result
     }
 
-    pub async fn resume_player(&self) -> Result<bool, AudioError<PlayerError>> {
+    pub async fn is_playing(&self) -> AudioResult<bool, PlayerError> {
+        self.call_player(|player| async { player.is_playing().await }.boxed())
+            .await
+    }
+
+    pub async fn resume_player(&self) -> AudioResult<bool, PlayerError> {
         let result = self
             .call_player(|player| async { player.resume().await }.boxed())
             .await;
@@ -253,7 +269,7 @@ impl Piano {
         result
     }
 
-    pub async fn pause_player(&self) -> Result<bool, AudioError<PlayerError>> {
+    pub async fn pause_player(&self) -> AudioResult<bool, PlayerError> {
         let result = self
             .call_player(|player| async { player.pause().await }.boxed())
             .await;
@@ -268,6 +284,9 @@ impl Piano {
 
     /// Play `sound` using the secondary sink.
     async fn play_sound(&self, sound: Sound) {
+        if !self.has_player().await {
+            return;
+        }
         let source = self.sounds.get(sound);
         let props = PlaybackProperties {
             secondary: true,
@@ -281,7 +300,15 @@ impl Piano {
         }
     }
 
-    async fn call_player<T, F>(&self, f: F) -> Result<T, AudioError<PlayerError>>
+    async fn has_player(&self) -> bool {
+        self.inner
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|inner| inner.player.is_some())
+    }
+
+    async fn call_player<T, F>(&self, f: F) -> AudioResult<T, PlayerError>
     where
         // Using [BoxFuture] because of a problem with the closure
         // lifetimes when passing a reference in the parameters.
@@ -297,7 +324,15 @@ impl Piano {
         f(player).await.map_err(AudioError::Error)
     }
 
-    async fn call_recorder<T, F>(&self, f: F) -> Result<T, AudioError<RecordError>>
+    async fn has_recorder(&self) -> bool {
+        self.inner
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|inner| inner.recorder.is_some())
+    }
+
+    async fn call_recorder<T, F>(&self, f: F) -> AudioResult<T, RecordError>
     where
         F: FnOnce(&mut Recorder) -> BoxFuture<Result<T, RecordError>>,
     {
@@ -346,13 +381,14 @@ impl Piano {
                 .unwrap_or(false);
 
             if devpath_matches {
+                *inner = None;
+                info!("Piano removed");
+                drop(inner);
                 let _ = self
                     .stop_recording(StopRecordingParams {
                         triggered_by_user: false,
                     })
                     .await;
-                *inner = None;
-                info!("Piano removed");
                 return Some(HandledPianoEvent::Remove);
             }
         }
@@ -393,15 +429,17 @@ impl Piano {
 
         if self.a2dp_source_handler.has_connected().await {
             if inner.device.is_some() {
+                inner.device = None;
+                inner.player = None;
+                inner.recorder = None;
+                info!("Audio device released");
+
+                drop(inner_lock);
                 let _ = self
                     .stop_recording(StopRecordingParams {
                         triggered_by_user: false,
                     })
                     .await;
-                inner.device = None;
-                inner.player = None;
-                inner.recorder = None;
-                info!("Audio device released");
             }
         } else if inner.device.is_none() {
             self.init_audio_io(inner).await
@@ -542,9 +580,12 @@ impl Piano {
 
 impl Drop for Piano {
     fn drop(&mut self) {
-        let _ = executor::block_on(self.stop_recording(StopRecordingParams {
-            triggered_by_user: false,
-        }));
+        // Preserve recording on the latest instance drop (at server shutdown).
+        if Arc::strong_count(&self.inner) == 1 {
+            let _ = executor::block_on(self.stop_recording(StopRecordingParams {
+                triggered_by_user: false,
+            }));
+        }
     }
 }
 

@@ -2,9 +2,10 @@ mod mutation;
 mod query;
 mod subscription;
 
-use std::fmt::Display;
+use std::{fmt::Display, ops::Deref};
 
-use async_graphql::{http::GraphiQLSource, Error, ErrorExtensions, Schema};
+use async_graphql::{http::GraphiQLSource, scalar, Error, ErrorExtensions, Schema};
+use serde::{Deserialize, Serialize};
 
 use crate::App;
 use mutation::MutationRoot;
@@ -13,6 +14,19 @@ use subscription::SubscriptionRoot;
 
 pub type GraphQLSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 pub type GraphQLPlayground = String;
+
+// By default it supports only up to 32-bit integer.
+#[derive(Deserialize, Serialize)]
+struct Int64(i64);
+scalar!(Int64);
+
+impl Deref for Int64 {
+    type Target = i64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 pub fn build_schema(app: App) -> GraphQLSchema {
     Schema::build(
