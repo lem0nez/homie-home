@@ -1,18 +1,26 @@
 pub mod recordings;
 
-use std::{ffi::OsString, path::Path, sync::Arc, time::Duration};
+use std::{ffi::OsString, fmt::Display, path::Path, sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};
+use futures::{executor, future::BoxFuture, FutureExt};
 use log::{error, info, warn};
 
 use crate::{
-    audio::{self, player::Player, recorder::Recorder, SoundLibrary},
+    audio::{
+        self,
+        player::{PlaybackProperties, Player, PlayerError},
+        recorder::{RecordError, Recorder},
+        AudioSourceError, AudioSourceProperties, SoundLibrary,
+    },
     bluetooth::A2DPSourceHandler,
     config,
     core::ShutdownNotify,
+    files::Sound,
+    graphql::GraphQLError,
     SharedMutex,
 };
-use recordings::RecordingStorage;
+use recordings::{Recording, RecordingStorage, RecordingStorageError};
 
 /// Delay between initializing just plugged in piano and finding its audio device.
 ///
@@ -23,6 +31,7 @@ use recordings::RecordingStorage;
 /// to be available to perform the initialization stuff. But if the device is busy,
 /// it will not be picked up.
 const FIND_AUDIO_DEVICE_DELAY: Duration = Duration::from_millis(500);
+const PLAY_RECORDING_FADE_IN: Duration = Duration::from_millis(300);
 
 pub enum HandledPianoEvent {
     Add,
@@ -33,6 +42,55 @@ pub struct InitParams {
     /// Whether calling initialization just after the piano plugged in.
     pub after_piano_connected: bool,
 }
+
+#[derive(Debug, strum::AsRefStr, thiserror::Error)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+pub enum AudioError<E> {
+    #[error("piano is not connected")]
+    PianoNotConnected,
+    #[error("{0} is not initialized")]
+    NotInitialized(&'static str),
+    #[error(transparent)]
+    Error(E),
+}
+
+impl<E: Display> GraphQLError for AudioError<E> {}
+
+pub struct StopRecordingParams {
+    pub triggered_by_user: bool,
+}
+
+#[derive(Debug, strum::AsRefStr, thiserror::Error)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+pub enum RecordControlError {
+    #[error("already recording")]
+    AlreadyRecording,
+    #[error("not recording")]
+    NotRecording,
+    #[error("failed to prepare new file for the recording: {0}")]
+    PrepareFileError(RecordingStorageError),
+    #[error("failed to preserve the new recording: {0}")]
+    PreserveRecordingError(RecordingStorageError),
+    #[error("unable to check the current recording status: {0}")]
+    CheckStatusFailed(RecordingStorageError),
+    #[error(transparent)]
+    Error(AudioError<RecordError>),
+}
+
+impl GraphQLError for RecordControlError {}
+
+#[derive(Debug, strum::AsRefStr, thiserror::Error)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+pub enum PlayRecordingError {
+    #[error("unable to get the recording: {0}")]
+    GetRecording(RecordingStorageError),
+    #[error("unable to make an audio source: {0}")]
+    MakeAudioSource(AudioSourceError),
+    #[error(transparent)]
+    Error(AudioError<PlayerError>),
+}
+
+impl GraphQLError for PlayRecordingError {}
 
 #[derive(Clone)]
 pub struct Piano {
@@ -45,7 +103,6 @@ pub struct Piano {
 
     /// If the piano is not connected, it will be [None].
     inner: SharedMutex<Option<InnerInitialized>>,
-    // TODO: on drop or piano disconnect preserve the active recording.
     pub recording_storage: RecordingStorage,
 }
 
@@ -70,6 +127,188 @@ impl Piano {
 
     pub async fn is_connected(&self) -> bool {
         self.inner.lock().await.is_some()
+    }
+
+    pub async fn record(&self) -> Result<(), RecordControlError> {
+        let out_file = self
+            .recording_storage
+            .prepare_new()
+            .await
+            .map_err(RecordControlError::PrepareFileError)
+            .and_then(|path| path.ok_or(RecordControlError::AlreadyRecording));
+        let result = match out_file {
+            Ok(out_file) => {
+                let out_file_clone = out_file.clone();
+                self.call_recorder(|recorder| {
+                    async move { recorder.start(&out_file).await }.boxed()
+                })
+                .await
+                .map_err(|err| {
+                    if let Err(err) = std::fs::remove_file(out_file_clone) {
+                        error!("Failed to remove the recording output file after abort: {err}");
+                    }
+                    RecordControlError::Error(err)
+                })
+            }
+            Err(e) => Err(e),
+        };
+        self.play_sound(if result.is_ok() {
+            Sound::RecordStart
+        } else {
+            Sound::Error
+        })
+        .await;
+        result
+    }
+
+    /// Stop recorder and preserve the new recording file.
+    pub async fn stop_recording(
+        &self,
+        params: StopRecordingParams,
+    ) -> Result<Recording, RecordControlError> {
+        let is_recording = self
+            .recording_storage
+            .is_recording()
+            .await
+            .map_err(RecordControlError::CheckStatusFailed)?;
+        if !is_recording {
+            return Err(RecordControlError::NotRecording);
+        }
+
+        let stop_result = self
+            .call_recorder(|recorder| async { recorder.stop().await }.boxed())
+            .await;
+        if let Err(e) = &stop_result {
+            error!("Failed to stop recorder: {e}");
+            // Ignore it and try to preserve the recording.
+        }
+
+        let result = self
+            .recording_storage
+            .preserve_new()
+            .await
+            .map_err(RecordControlError::PreserveRecordingError)
+            .and_then(|path| path.ok_or(RecordControlError::NotRecording));
+        if params.triggered_by_user {
+            self.play_sound(if stop_result.is_ok() && result.is_ok() {
+                Sound::RecordStop
+            } else {
+                Sound::Error
+            })
+            .await;
+        } else {
+            match &result {
+                Ok(recording) => info!("New recording preserved: {recording}"),
+                Err(e) => error!("Failed to preserve the new recording: {e}"),
+            }
+        }
+        result
+    }
+
+    pub async fn play_recording(&self, id: i64) -> Result<(), PlayRecordingError> {
+        let source = self
+            .recording_storage
+            .get(id)
+            .await
+            .map_err(PlayRecordingError::GetRecording)
+            .and_then(|recording| {
+                recording
+                    .audio_source()
+                    .map_err(PlayRecordingError::MakeAudioSource)
+            });
+        let result = match source {
+            Ok(source) => {
+                let props = PlaybackProperties {
+                    source_props: AudioSourceProperties {
+                        fade_in: Some(PLAY_RECORDING_FADE_IN),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                self.call_player(|player| async { player.play(source, props).await }.boxed())
+                    .await
+                    .map_err(PlayRecordingError::Error)
+            }
+            Err(e) => Err(e),
+        };
+        self.play_sound(if result.is_ok() {
+            Sound::Play
+        } else {
+            Sound::Error
+        })
+        .await;
+        result
+    }
+
+    pub async fn resume_player(&self) -> Result<bool, AudioError<PlayerError>> {
+        let result = self
+            .call_player(|player| async { player.resume().await }.boxed())
+            .await;
+        self.play_sound(if result.as_ref().is_ok_and(|resumed| *resumed) {
+            Sound::PauseResume
+        } else {
+            Sound::Error
+        })
+        .await;
+        result
+    }
+
+    pub async fn pause_player(&self) -> Result<bool, AudioError<PlayerError>> {
+        let result = self
+            .call_player(|player| async { player.pause().await }.boxed())
+            .await;
+        self.play_sound(if result.as_ref().is_ok_and(|paused| *paused) {
+            Sound::PauseResume
+        } else {
+            Sound::Error
+        })
+        .await;
+        result
+    }
+
+    /// Play `sound` using the secondary sink.
+    async fn play_sound(&self, sound: Sound) {
+        let source = self.sounds.get(sound);
+        let props = PlaybackProperties {
+            secondary: true,
+            ..Default::default()
+        };
+        let result = self
+            .call_player(|player| async { player.play(source, props).await }.boxed())
+            .await;
+        if let Err(e) = result {
+            warn!("Failed to play sound \"{sound}\": {e}");
+        }
+    }
+
+    async fn call_player<T, F>(&self, f: F) -> Result<T, AudioError<PlayerError>>
+    where
+        // Using [BoxFuture] because of a problem with the closure
+        // lifetimes when passing a reference in the parameters.
+        F: FnOnce(&mut Player) -> BoxFuture<Result<T, PlayerError>>,
+    {
+        let mut inner_lock = self.inner.lock().await;
+        let player = inner_lock
+            .as_mut()
+            .ok_or(AudioError::PianoNotConnected)?
+            .player
+            .as_mut()
+            .ok_or(AudioError::NotInitialized("player"))?;
+        f(player).await.map_err(AudioError::Error)
+    }
+
+    async fn call_recorder<T, F>(&self, f: F) -> Result<T, AudioError<RecordError>>
+    where
+        F: FnOnce(&mut Recorder) -> BoxFuture<Result<T, RecordError>>,
+    {
+        let mut inner_lock = self.inner.lock().await;
+        let recorder = inner_lock
+            .as_mut()
+            .ok_or(AudioError::PianoNotConnected)?
+            .recorder
+            .as_mut()
+            .ok_or(AudioError::NotInitialized("recorder"))?;
+        f(recorder).await.map_err(AudioError::Error)
     }
 
     pub async fn handle_udev_event(&self, event: &tokio_udev::Event) -> Option<HandledPianoEvent> {
@@ -107,6 +346,11 @@ impl Piano {
                 .unwrap_or(false);
 
             if devpath_matches {
+                let _ = self
+                    .stop_recording(StopRecordingParams {
+                        triggered_by_user: false,
+                    })
+                    .await;
                 *inner = None;
                 info!("Piano removed");
                 return Some(HandledPianoEvent::Remove);
@@ -149,6 +393,11 @@ impl Piano {
 
         if self.a2dp_source_handler.has_connected().await {
             if inner.device.is_some() {
+                let _ = self
+                    .stop_recording(StopRecordingParams {
+                        triggered_by_user: false,
+                    })
+                    .await;
                 inner.device = None;
                 inner.player = None;
                 inner.recorder = None;
@@ -288,6 +537,14 @@ impl Piano {
             }
         }
         None
+    }
+}
+
+impl Drop for Piano {
+    fn drop(&mut self) {
+        let _ = executor::block_on(self.stop_recording(StopRecordingParams {
+            triggered_by_user: false,
+        }));
     }
 }
 

@@ -19,10 +19,12 @@ use crate::{
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum RecordingStorageError {
-    #[error(transparent)]
-    ReadRecording(ReadRecordingError),
+    #[error("recording does not exist")]
+    RecordingNotExists,
+    #[error("unable to read the recording: {0}")]
+    FailedToRead(ReadRecordingError),
     #[error("file system error ({0})")]
-    FileSystem(io::Error),
+    FileSystemError(io::Error),
 }
 
 impl GraphQLError for RecordingStorageError {}
@@ -42,9 +44,9 @@ impl RecordingStorage {
     }
 
     pub async fn is_recording(&self) -> Result<bool, RecordingStorageError> {
-        fs::try_exists(&self.active_recording_path())
+        fs::try_exists(&self.unsaved_path())
             .await
-            .map_err(RecordingStorageError::FileSystem)
+            .map_err(RecordingStorageError::FileSystemError)
     }
 
     /// Returns recordings ordered by creation time.
@@ -52,16 +54,16 @@ impl RecordingStorage {
         let mut recordings = Vec::new();
         let mut read_dir = fs::read_dir(&self.dir)
             .await
-            .map_err(RecordingStorageError::FileSystem)?;
-        let active_recording_path = self.active_recording_path();
+            .map_err(RecordingStorageError::FileSystemError)?;
+        let unsaved_recording_path = self.unsaved_path();
 
         while let Some(entry) = read_dir
             .next_entry()
             .await
-            .map_err(RecordingStorageError::FileSystem)?
+            .map_err(RecordingStorageError::FileSystemError)?
         {
             let path = entry.path();
-            if path == active_recording_path {
+            if path == unsaved_recording_path {
                 continue;
             }
             recordings.push(async move {
@@ -93,10 +95,10 @@ impl RecordingStorage {
     /// Returns path of the new file to create (it will **not** be created)
     /// or [None] if recording is already in process.
     pub(super) async fn prepare_new(&self) -> Result<Option<PathBuf>, RecordingStorageError> {
-        let path = self.active_recording_path();
+        let path = self.unsaved_path();
         if fs::try_exists(&path)
             .await
-            .map_err(RecordingStorageError::FileSystem)?
+            .map_err(RecordingStorageError::FileSystemError)?
         {
             Ok(None)
         } else {
@@ -104,12 +106,12 @@ impl RecordingStorage {
         }
     }
 
-    /// Returns path of the preserved new recording or [None] if recording was not in process.
-    pub(super) async fn preserve_new(&self) -> Result<Option<PathBuf>, RecordingStorageError> {
-        let path = self.active_recording_path();
+    /// Returns [None] if recording is not in process.
+    pub(super) async fn preserve_new(&self) -> Result<Option<Recording>, RecordingStorageError> {
+        let path = self.unsaved_path();
         if !fs::try_exists(&path)
             .await
-            .map_err(RecordingStorageError::FileSystem)?
+            .map_err(RecordingStorageError::FileSystemError)?
         {
             return Ok(None);
         }
@@ -124,16 +126,18 @@ impl RecordingStorage {
                 ));
                 path
             })
-            .ok_or(RecordingStorageError::FileSystem(io::Error::other(
+            .ok_or(RecordingStorageError::FileSystemError(io::Error::other(
                 "incorrect parent directory",
             )))?;
         fs::rename(path, &new_path)
             .await
-            .map_err(RecordingStorageError::FileSystem)?;
+            .map_err(RecordingStorageError::FileSystemError)?;
 
         let self_clone = self.clone();
         tokio::spawn(async move { self_clone.remove_old_if_limit_reached().await });
-        Ok(Some(new_path))
+        Recording::new(&new_path)
+            .map(Some)
+            .map_err(RecordingStorageError::FailedToRead)
     }
 
     async fn remove_old_if_limit_reached(&self) {
@@ -151,10 +155,28 @@ impl RecordingStorage {
         }
     }
 
-    fn active_recording_path(&self) -> PathBuf {
+    pub(super) async fn get(&self, recording_id: i64) -> Result<Recording, RecordingStorageError> {
+        let path = self.path(&recording_id.to_string());
+        if !fs::try_exists(&path)
+            .await
+            .map_err(RecordingStorageError::FileSystemError)?
+        {
+            Err(RecordingStorageError::RecordingNotExists)
+        } else {
+            Recording::new(&path).map_err(RecordingStorageError::FailedToRead)
+        }
+    }
+
+    /// `recording_basename` is a file name without the extension.
+    fn path(&self, recording_basename: &str) -> PathBuf {
         let mut path = self.dir.clone();
-        path.push(format!("active{RECORDING_EXTENSION}"));
+        path.push(format!("{recording_basename}{RECORDING_EXTENSION}"));
         path
+    }
+
+    /// Path of a temporary file which is used for the new recordings.
+    fn unsaved_path(&self) -> PathBuf {
+        self.path("new")
     }
 }
 
@@ -207,16 +229,16 @@ impl Recording {
         })
     }
 
+    pub(super) fn audio_source(&self) -> Result<AudioSource, AudioSourceError> {
+        AudioSource::new(&self.flac_path)
+    }
+
     fn id(&self) -> i64 {
         self.creation_time.timestamp_millis()
     }
 
     fn human_creation_time(&self) -> String {
         human_date_ago(self.creation_time)
-    }
-
-    fn audio_source(&self) -> Result<AudioSource, AudioSourceError> {
-        AudioSource::new(&self.flac_path)
     }
 }
 

@@ -289,8 +289,6 @@ impl Drop for Recorder {
     fn drop(&mut self) {
         if let Some(handlers) = &mut self.record_handlers {
             handlers.stop_trigger.store(true, atomic::Ordering::Relaxed);
-            // Wait until it will be stopped.
-            handlers.status_rx.blocking_recv();
         }
     }
 }
