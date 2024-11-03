@@ -150,7 +150,7 @@ impl RecordingStorage {
             if let Err(e) = fs::remove_file(&old_recording.flac_path).await {
                 error!("Failed to remove old recording {old_recording}: {e}");
             } else {
-                info!("Old recording {old_recording} removed, because files limit reached");
+                info!("Old recording {old_recording} removed");
             }
         }
     }
