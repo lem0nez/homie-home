@@ -82,6 +82,13 @@ impl AudioSource {
         .map_err(AudioSourceError::BuildDecoder)
     }
 
+    pub fn duration(&self) -> Option<Duration> {
+        match self {
+            AudioSource::File(buf_reader) => buf_reader.total_duration(),
+            AudioSource::Memory(cursor) => cursor.total_duration(),
+        }
+    }
+
     pub fn append_to(self, sink: &Sink, properties: AudioSourceProperties) {
         match self {
             AudioSource::File(buf_reader) => {
@@ -90,6 +97,11 @@ impl AudioSource {
             AudioSource::Memory(cursor) => append_source_to_sink!(sink, cursor, properties),
         };
     }
+}
+
+pub enum AudioObject {
+    Player,
+    Recorder,
 }
 
 #[derive(Clone)]

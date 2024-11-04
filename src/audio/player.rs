@@ -1,6 +1,8 @@
+use std::time::Duration;
+
 use cpal::{Device, Sample, SupportedStreamConfig};
 use log::{debug, error, info};
-use rodio::{OutputStream, OutputStreamHandle, PlayError, Sink, StreamError};
+use rodio::{source::SeekError, OutputStream, OutputStreamHandle, PlayError, Sink, StreamError};
 use tokio::{sync::mpsc, task};
 
 use crate::audio::{AudioSource, AudioSourceProperties};
@@ -10,11 +12,19 @@ type PlayerResult<T> = Result<T, PlayerError>;
 #[derive(Debug, thiserror::Error)]
 pub enum PlayerError {
     #[error("failed to create an output stream: {0}")]
-    CreateOutputStream(StreamError),
+    CreateOutputStreamError(StreamError),
     #[error("failed to create a sink: {0}")]
-    CreateSink(PlayError),
+    CreateSinkError(PlayError),
     #[error("playback stream closed")]
     StreamClosed,
+
+    // Errors related to the seeking.
+    #[error("failed to seek: {0}")]
+    SeekFailed(SeekError),
+    #[error("total duration of the audio source is unknown")]
+    UnknownTotalDuration,
+    #[error("percents number must be in range [0.00, 1.00]")]
+    InvalidPercents,
 }
 
 pub struct PlaybackProperties {
@@ -39,21 +49,51 @@ impl Default for PlaybackProperties {
     }
 }
 
+pub struct PlaybackPosition {
+    current: Duration,
+    /// [None] if total duration is unknown.
+    total: Option<Duration>,
+}
+
+#[async_graphql::Object]
+impl PlaybackPosition {
+    async fn current_ms(&self) -> u64 {
+        self.current.as_millis() as u64
+    }
+
+    async fn total_ms(&self) -> Option<u64> {
+        self.total.map(|total| total.as_millis() as u64)
+    }
+
+    /// Returns played part percents (from 0.00 to 1.00).
+    async fn percents(&self) -> Option<f64> {
+        self.total.map(|total| self.current.div_duration_f64(total))
+    }
+}
+
 #[derive(strum::Display)]
 enum Command {
     Play(AudioSource, PlaybackProperties),
-    // The following four commands applicable for the primary sink only.
+
+    // The following commands applicable for the primary sink only.
     IsPlaying,
     Resume,
     Pause,
-    Stop,
+    GetPosition,
+    SeekToPosition(Duration),
+    /// Seek to `total_duration * percents`.
+    SeekToPercents(f64),
 }
 
 enum Response {
     /// Returned on successful player instantiation.
     Initialized,
     PlayStarted,
-    PrimaryPlaybackResult(bool),
+
+    // For the primary sink only.
+    BoolResult(bool),
+    /// [None] means there is no playing (or paused) source.
+    Position(Option<PlaybackPosition>),
 }
 
 pub struct Player {
@@ -79,18 +119,24 @@ impl Player {
             let (_stream, stream_handle) =
                 match OutputStream::try_from_device_config(&device, output_stream_config) {
                     Ok(result) => result,
-                    Err(e) => return send_error(PlayerError::CreateOutputStream(e)),
+                    Err(e) => return send_error(PlayerError::CreateOutputStreamError(e)),
                 };
             let primary_sink = match Sink::try_new(&stream_handle) {
                 Ok(sink) => sink,
-                Err(e) => return send_error(PlayerError::CreateSink(e)),
+                Err(e) => return send_error(PlayerError::CreateSinkError(e)),
             };
             let _ = result_tx.blocking_send(Ok(Response::Initialized));
             info!("Playback started");
 
+            let mut current_source_duration = None;
             while let Some(command) = command_rx.blocking_recv() {
                 let command_str = command.to_string();
-                match handle_command(command, &stream_handle, &primary_sink) {
+                match handle_command(HandleInput {
+                    command,
+                    stream_handle: &stream_handle,
+                    primary_sink: &primary_sink,
+                    current_source_duration: &mut current_source_duration,
+                }) {
                     Ok(response) => {
                         let _ = result_tx.blocking_send(Ok(response));
                     }
@@ -112,6 +158,7 @@ impl Player {
             })
     }
 
+    /// If the primary sink chosen and it's already playing a source, then it will be replaced.
     pub async fn play(
         &mut self,
         source: AudioSource,
@@ -120,30 +167,50 @@ impl Player {
         self.perform(Command::Play(source, props)).await.map(|_| ())
     }
 
-    /// Is _primary_ playback playing some source.
+    /// Returns `false` if the primary sink is not playing.
     pub async fn is_playing(&mut self) -> PlayerResult<bool> {
-        self.primary_playback_command(Command::IsPlaying).await
+        self.perform_and_get_bool(Command::IsPlaying).await
     }
 
-    /// Resume the _primary_ playback.
+    /// Returns `false` if there is no paused source in the primary sink.
     pub async fn resume(&mut self) -> PlayerResult<bool> {
-        self.primary_playback_command(Command::Resume).await
+        self.perform_and_get_bool(Command::Resume).await
     }
 
-    /// Pause the _primary_ playback.
+    /// Returns `false` if there is no playing source in the primary sink.
     pub async fn pause(&mut self) -> PlayerResult<bool> {
-        self.primary_playback_command(Command::Pause).await
+        self.perform_and_get_bool(Command::Pause).await
     }
 
-    /// Stop the _primary_ playback.
-    pub async fn stop(&mut self) -> PlayerResult<bool> {
-        self.primary_playback_command(Command::Stop).await
+    /// Returns [None] if the primary sink is empty.
+    pub async fn position(&mut self) -> PlayerResult<Option<PlaybackPosition>> {
+        self.perform(Command::GetPosition)
+            .await
+            .map(|response| match response {
+                Response::Position(pos) => pos,
+                _ => panic!("position response expected"),
+            })
     }
 
-    async fn primary_playback_command(&mut self, command: Command) -> PlayerResult<bool> {
+    /// Returns `false` if the primary sink is empty.
+    pub async fn seek_to_position(&mut self, pos: Duration) -> PlayerResult<bool> {
+        self.perform_and_get_bool(Command::SeekToPosition(pos))
+            .await
+    }
+
+    /// Takes a number in range `[0.00, 1.00]`. Returns `false` if the primary sink is empty.
+    pub async fn seek_to_percents(&mut self, percents: f64) -> PlayerResult<bool> {
+        if !(0.00..1.00).contains(&percents) {
+            return Err(PlayerError::InvalidPercents);
+        }
+        self.perform_and_get_bool(Command::SeekToPercents(percents))
+            .await
+    }
+
+    async fn perform_and_get_bool(&mut self, command: Command) -> PlayerResult<bool> {
         self.perform(command).await.map(|response| match response {
-            Response::PrimaryPlaybackResult(status) => status,
-            _ => panic!("primary playback response expected"),
+            Response::BoolResult(result) => result,
+            _ => panic!("boolean response expected"),
         })
     }
 
@@ -159,56 +226,84 @@ impl Player {
     }
 }
 
-fn handle_command(
+struct HandleInput<'a> {
     command: Command,
-    stream_handle: &OutputStreamHandle,
-    primary_sink: &Sink,
-) -> PlayerResult<Response> {
-    match command {
+    stream_handle: &'a OutputStreamHandle,
+    primary_sink: &'a Sink,
+    current_source_duration: &'a mut Option<Duration>,
+}
+
+fn handle_command(input: HandleInput) -> PlayerResult<Response> {
+    let response = match input.command {
         Command::Play(source, props) => {
+            let duration = source.duration();
             let play = |sink: &Sink| {
                 sink.set_volume(props.volume);
                 source.append_to(sink, props.source_props);
                 sink.play();
             };
             if props.secondary {
-                let secondary_sink = match Sink::try_new(stream_handle) {
-                    Ok(sink) => sink,
-                    Err(e) => return Err(PlayerError::CreateSink(e)),
-                };
+                let secondary_sink =
+                    Sink::try_new(input.stream_handle).map_err(PlayerError::CreateSinkError)?;
                 play(&secondary_sink);
                 secondary_sink.detach();
             } else {
                 // Empty the queue.
-                primary_sink.stop();
-                play(primary_sink);
+                input.primary_sink.stop();
+                play(input.primary_sink);
+                *input.current_source_duration = duration;
             }
-            Ok(Response::PlayStarted)
+            Response::PlayStarted
         }
-        Command::IsPlaying => Ok(Response::PrimaryPlaybackResult(
-            !primary_sink.is_paused() && !primary_sink.empty(),
-        )),
-        Command::Resume => Ok(Response::PrimaryPlaybackResult(
-            if !primary_sink.is_paused() || primary_sink.empty() {
+        Command::IsPlaying => Response::BoolResult(is_playing(input.primary_sink)),
+        Command::Resume => Response::BoolResult(
+            if !input.primary_sink.is_paused() || input.primary_sink.empty() {
                 false
             } else {
-                primary_sink.play();
+                input.primary_sink.play();
                 true
             },
-        )),
-        Command::Pause => Ok(Response::PrimaryPlaybackResult(
-            if primary_sink.is_paused() || primary_sink.empty() {
-                false
-            } else {
-                primary_sink.pause();
-                true
-            },
-        )),
-        Command::Stop => Ok(Response::PrimaryPlaybackResult(if primary_sink.empty() {
+        ),
+        Command::Pause => Response::BoolResult(
+            is_playing(input.primary_sink)
+                .then(|| input.primary_sink.pause())
+                .is_some(),
+        ),
+        Command::GetPosition => {
+            Response::Position((!input.primary_sink.empty()).then(|| PlaybackPosition {
+                current: input.primary_sink.get_pos(),
+                total: *input.current_source_duration,
+            }))
+        }
+        Command::SeekToPosition(pos) => Response::BoolResult(if input.primary_sink.empty() {
             false
         } else {
-            primary_sink.stop();
+            input
+                .primary_sink
+                .try_seek(pos)
+                .map_err(PlayerError::SeekFailed)?;
             true
-        })),
-    }
+        }),
+        Command::SeekToPercents(percents) => Response::BoolResult(if input.primary_sink.empty() {
+            false
+        } else {
+            let total_duration = input
+                .current_source_duration
+                .ok_or(PlayerError::UnknownTotalDuration)?;
+            input
+                .primary_sink
+                .try_seek(if percents == 0. {
+                    Duration::ZERO
+                } else {
+                    total_duration.div_f64(percents)
+                })
+                .map_err(PlayerError::SeekFailed)?;
+            true
+        }),
+    };
+    Ok(response)
+}
+
+fn is_playing(sink: &Sink) -> bool {
+    !(sink.is_paused() || sink.empty())
 }

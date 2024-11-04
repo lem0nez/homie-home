@@ -11,7 +11,7 @@ use crate::{
         self,
         player::{PlaybackProperties, Player, PlayerError},
         recorder::{RecordError, Recorder},
-        AudioSourceError, AudioSourceProperties, SoundLibrary,
+        AudioObject, AudioSourceError, AudioSourceProperties, SoundLibrary,
     },
     bluetooth::A2DPSourceHandler,
     config,
@@ -182,7 +182,7 @@ impl Piano {
             return Err(RecordControlError::NotRecording);
         }
 
-        let stop_succeed = if self.has_recorder().await {
+        let stop_succeed = if self.has_initialized(AudioObject::Recorder).await {
             let result = self
                 .call_recorder(|recorder| async { recorder.stop().await }.boxed())
                 .await;
@@ -284,7 +284,7 @@ impl Piano {
 
     /// Play `sound` using the secondary sink.
     async fn play_sound(&self, sound: Sound) {
-        if !self.has_player().await {
+        if !self.has_initialized(AudioObject::Player).await {
             return;
         }
         let source = self.sounds.get(sound);
@@ -298,14 +298,6 @@ impl Piano {
         if let Err(e) = result {
             warn!("Failed to play sound \"{sound}\": {e}");
         }
-    }
-
-    async fn has_player(&self) -> bool {
-        self.inner
-            .lock()
-            .await
-            .as_ref()
-            .is_some_and(|inner| inner.player.is_some())
     }
 
     async fn call_player<T, F>(&self, f: F) -> AudioResult<T, PlayerError>
@@ -324,14 +316,6 @@ impl Piano {
         f(player).await.map_err(AudioError::Error)
     }
 
-    async fn has_recorder(&self) -> bool {
-        self.inner
-            .lock()
-            .await
-            .as_ref()
-            .is_some_and(|inner| inner.recorder.is_some())
-    }
-
     async fn call_recorder<T, F>(&self, f: F) -> AudioResult<T, RecordError>
     where
         F: FnOnce(&mut Recorder) -> BoxFuture<Result<T, RecordError>>,
@@ -344,6 +328,17 @@ impl Piano {
             .as_mut()
             .ok_or(AudioError::NotInitialized("recorder"))?;
         f(recorder).await.map_err(AudioError::Error)
+    }
+
+    async fn has_initialized(&self, audio_object: AudioObject) -> bool {
+        self.inner
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|inner| match audio_object {
+                AudioObject::Player => inner.player.is_some(),
+                AudioObject::Recorder => inner.recorder.is_some(),
+            })
     }
 
     pub async fn handle_udev_event(&self, event: &tokio_udev::Event) -> Option<HandledPianoEvent> {
