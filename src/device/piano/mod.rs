@@ -2,14 +2,16 @@ pub mod recordings;
 
 use std::{ffi::OsString, fmt::Display, path::Path, sync::Arc, time::Duration};
 
+use async_stream::stream;
 use cpal::traits::{DeviceTrait, HostTrait};
-use futures::{executor, future::BoxFuture, FutureExt};
+use futures::{executor, future::BoxFuture, FutureExt, Stream};
 use log::{error, info, warn};
+use tokio::{fs, select};
 
 use crate::{
     audio::{
         self,
-        player::{PlaybackProperties, Player, PlayerError},
+        player::{PlaybackPosition, PlaybackProperties, Player, PlayerError},
         recorder::{RecordError, Recorder},
         AudioObject, AudioSourceError, AudioSourceProperties, SoundLibrary,
     },
@@ -49,7 +51,7 @@ pub enum AudioError<E> {
     #[error("piano is not connected")]
     PianoNotConnected,
     #[error("{0} is not initialized")]
-    NotInitialized(&'static str),
+    NotInitialized(AudioObject),
     #[error(transparent)]
     Error(E),
 }
@@ -58,7 +60,7 @@ impl<E: Display> GraphQLError for AudioError<E> {}
 
 type AudioResult<T, E> = Result<T, AudioError<E>>;
 
-pub struct StopRecordingParams {
+pub struct StopRecorderParams {
     pub triggered_by_user: bool,
 }
 
@@ -69,11 +71,11 @@ pub enum RecordControlError {
     AlreadyRecording,
     #[error("not recording")]
     NotRecording,
-    #[error("failed to prepare new file for a recording: {0}")]
+    #[error("failed to prepare a new file: {0}")]
     PrepareFileError(RecordingStorageError),
     #[error("failed to preserve the new recording: {0}")]
     PreserveRecordingError(RecordingStorageError),
-    #[error("unable to check the current recording status: {0}")]
+    #[error("unable to check recorder status: {0}")]
     CheckStatusFailed(RecordingStorageError),
     #[error(transparent)]
     Error(AudioError<RecordError>),
@@ -131,44 +133,39 @@ impl Piano {
         self.inner.lock().await.is_some()
     }
 
+    /// Start recording to the new temporary file.
     pub async fn record(&self) -> Result<(), RecordControlError> {
-        let out_file = self
+        let out_path = self
             .recording_storage
             .prepare_new()
             .await
             .map_err(RecordControlError::PrepareFileError)
-            .and_then(|path| path.ok_or(RecordControlError::AlreadyRecording));
-        let result = match out_file {
-            Ok(out_file) => {
-                let out_file_clone = out_file.clone();
-                self.call_recorder(|recorder| {
-                    async move { recorder.start(&out_file).await }.boxed()
-                })
-                .await
-                .map_err(|err| {
-                    if out_file_clone.try_exists().unwrap_or(true) {
-                        if let Err(err) = std::fs::remove_file(out_file_clone) {
-                            error!("Failed to remove the recording output file after abort: {err}");
-                        }
-                    }
-                    RecordControlError::Error(err)
-                })
+            .and_then(|path| path.ok_or(RecordControlError::AlreadyRecording))?;
+        let out_path_clone = out_path.clone();
+        let result = self
+            .call_recorder(|recorder| async move { recorder.start(&out_path).await }.boxed())
+            .await;
+
+        if let Err(e) = result {
+            if fs::try_exists(&out_path_clone).await.unwrap_or(true) {
+                if let Err(e) = fs::remove_file(&out_path_clone).await {
+                    error!(
+                        "Failed to remove {} after recorder error: {e}",
+                        out_path_clone.to_string_lossy()
+                    );
+                }
             }
-            Err(e) => Err(e),
-        };
-        self.play_sound(if result.is_ok() {
-            Sound::RecordStart
+            Err(RecordControlError::Error(e))
         } else {
-            Sound::Error
-        })
-        .await;
-        result
+            self.play_sound(Sound::RecordStart).await;
+            Ok(())
+        }
     }
 
-    /// Stop recorder and preserve the new recording file.
-    pub async fn stop_recording(
+    /// Stop recorder and preserve a new recording.
+    pub async fn stop_recorder(
         &self,
-        params: StopRecordingParams,
+        params: StopRecorderParams,
     ) -> Result<Recording, RecordControlError> {
         let is_recording = self
             .recording_storage
@@ -176,9 +173,6 @@ impl Piano {
             .await
             .map_err(RecordControlError::CheckStatusFailed)?;
         if !is_recording {
-            if params.triggered_by_user {
-                self.play_sound(Sound::Error).await;
-            }
             return Err(RecordControlError::NotRecording);
         }
 
@@ -194,26 +188,27 @@ impl Piano {
             true
         };
 
-        let result = self
+        // Try to preserve a recording even if failed to stop the recorder.
+        let preserve_result = self
             .recording_storage
             .preserve_new()
             .await
             .map_err(RecordControlError::PreserveRecordingError)
             .and_then(|path| path.ok_or(RecordControlError::NotRecording));
         if params.triggered_by_user {
-            self.play_sound(if stop_succeed && result.is_ok() {
+            self.play_sound(if stop_succeed && preserve_result.is_ok() {
                 Sound::RecordStop
             } else {
                 Sound::Error
             })
             .await;
         } else {
-            match &result {
+            match &preserve_result {
                 Ok(recording) => info!("New recording preserved: {recording}"),
-                Err(e) => error!("Failed to preserve the new recording: {e}"),
+                Err(e) => error!("Failed to preserve a new recording: {e}"),
             }
         }
-        result
+        preserve_result
     }
 
     pub async fn play_recording(&self, id: i64) -> Result<(), PlayRecordingError> {
@@ -221,34 +216,51 @@ impl Piano {
             .recording_storage
             .get(id)
             .await
-            .map_err(PlayRecordingError::GetRecording)
-            .and_then(|recording| {
-                recording
-                    .audio_source()
-                    .map_err(PlayRecordingError::MakeAudioSource)
-            });
-        let result = match source {
-            Ok(source) => {
-                let props = PlaybackProperties {
-                    source_props: AudioSourceProperties {
-                        fade_in: Some(PLAY_RECORDING_FADE_IN),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                };
-                self.call_player(|player| async { player.play(source, props).await }.boxed())
-                    .await
-                    .map_err(PlayRecordingError::Error)
-            }
-            Err(e) => Err(e),
+            .map_err(PlayRecordingError::GetRecording)?
+            .audio_source()
+            .map_err(PlayRecordingError::MakeAudioSource)?;
+        let props = PlaybackProperties {
+            source_props: AudioSourceProperties {
+                fade_in: Some(PLAY_RECORDING_FADE_IN),
+                ..Default::default()
+            },
+            ..Default::default()
         };
-        self.play_sound(if result.is_ok() {
-            Sound::Play
-        } else {
-            Sound::Error
-        })
-        .await;
-        result
+        self.call_player(|player| async { player.play(source, props).await }.boxed())
+            .await
+            .map_err(PlayRecordingError::Error)?;
+        self.play_sound(Sound::Play).await;
+        Ok(())
+    }
+
+    /// Seek to the given position represented in percents.
+    /// Returns `false` if there is no playing (or paused) audio.
+    pub async fn seek_player(&self, percents: f64) -> AudioResult<bool, PlayerError> {
+        self.call_player(|player| async move { player.seek_to_percents(percents).await }.boxed())
+            .await
+    }
+
+    /// `check_interval` is an interval between responses. Stream finishes on the playback end.
+    pub async fn playback_position(
+        &self,
+        check_interval: Duration,
+    ) -> impl Stream<Item = PlaybackPosition> + '_ {
+        stream! {
+            loop {
+                if let Ok(Some(pos)) = self
+                    .call_player(|player| async { player.position().await }.boxed())
+                    .await
+                {
+                    yield pos;
+                } else {
+                    break;
+                }
+                select! {
+                    _ = tokio::time::sleep(check_interval) => {}
+                    _ = self.shutdown_notify.notified() => break,
+                }
+            }
+        }
     }
 
     pub async fn is_playing(&self) -> AudioResult<bool, PlayerError> {
@@ -257,29 +269,23 @@ impl Piano {
     }
 
     pub async fn resume_player(&self) -> AudioResult<bool, PlayerError> {
-        let result = self
+        let resumed = self
             .call_player(|player| async { player.resume().await }.boxed())
-            .await;
-        self.play_sound(if result.as_ref().is_ok_and(|resumed| *resumed) {
-            Sound::PauseResume
-        } else {
-            Sound::Error
-        })
-        .await;
-        result
+            .await?;
+        if resumed {
+            self.play_sound(Sound::PauseResume).await;
+        }
+        Ok(resumed)
     }
 
     pub async fn pause_player(&self) -> AudioResult<bool, PlayerError> {
-        let result = self
+        let paused = self
             .call_player(|player| async { player.pause().await }.boxed())
-            .await;
-        self.play_sound(if result.as_ref().is_ok_and(|paused| *paused) {
-            Sound::PauseResume
-        } else {
-            Sound::Error
-        })
-        .await;
-        result
+            .await?;
+        if paused {
+            self.play_sound(Sound::PauseResume).await;
+        }
+        Ok(paused)
     }
 
     /// Play `sound` using the secondary sink.
@@ -312,7 +318,7 @@ impl Piano {
             .ok_or(AudioError::PianoNotConnected)?
             .player
             .as_mut()
-            .ok_or(AudioError::NotInitialized("player"))?;
+            .ok_or(AudioError::NotInitialized(AudioObject::Player))?;
         f(player).await.map_err(AudioError::Error)
     }
 
@@ -326,19 +332,8 @@ impl Piano {
             .ok_or(AudioError::PianoNotConnected)?
             .recorder
             .as_mut()
-            .ok_or(AudioError::NotInitialized("recorder"))?;
+            .ok_or(AudioError::NotInitialized(AudioObject::Recorder))?;
         f(recorder).await.map_err(AudioError::Error)
-    }
-
-    async fn has_initialized(&self, audio_object: AudioObject) -> bool {
-        self.inner
-            .lock()
-            .await
-            .as_ref()
-            .is_some_and(|inner| match audio_object {
-                AudioObject::Player => inner.player.is_some(),
-                AudioObject::Recorder => inner.recorder.is_some(),
-            })
     }
 
     pub async fn handle_udev_event(&self, event: &tokio_udev::Event) -> Option<HandledPianoEvent> {
@@ -380,7 +375,7 @@ impl Piano {
                 info!("Piano removed");
                 drop(inner);
                 let _ = self
-                    .stop_recording(StopRecordingParams {
+                    .stop_recorder(StopRecorderParams {
                         triggered_by_user: false,
                     })
                     .await;
@@ -424,14 +419,11 @@ impl Piano {
 
         if self.a2dp_source_handler.has_connected().await {
             if inner.device.is_some() {
-                inner.device = None;
-                inner.player = None;
-                inner.recorder = None;
+                inner.release_audio();
                 info!("Audio device released");
-
                 drop(inner_lock);
                 let _ = self
-                    .stop_recording(StopRecordingParams {
+                    .stop_recorder(StopRecorderParams {
                         triggered_by_user: false,
                     })
                     .await;
@@ -521,6 +513,17 @@ impl Piano {
         }
     }
 
+    pub async fn has_initialized(&self, audio_object: AudioObject) -> bool {
+        self.inner
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|inner| match audio_object {
+                AudioObject::Player => inner.player.is_some(),
+                AudioObject::Recorder => inner.recorder.is_some(),
+            })
+    }
+
     pub fn find_devpath(&self) -> Option<OsString> {
         let mut enumerator = match tokio_udev::Enumerator::new() {
             Ok(enumerator) => enumerator,
@@ -575,9 +578,9 @@ impl Piano {
 
 impl Drop for Piano {
     fn drop(&mut self) {
-        // Preserve recording on the latest instance drop (at server shutdown).
+        // Preserve recording (if recorder is active) on latest instance drop (at server shutdown).
         if Arc::strong_count(&self.inner) == 1 {
-            let _ = executor::block_on(self.stop_recording(StopRecordingParams {
+            let _ = executor::block_on(self.stop_recorder(StopRecorderParams {
                 triggered_by_user: false,
             }));
         }
@@ -603,5 +606,11 @@ impl InnerInitialized {
             player: None,
             recorder: None,
         }
+    }
+
+    fn release_audio(&mut self) {
+        self.device = None;
+        self.player = None;
+        self.recorder = None;
     }
 }

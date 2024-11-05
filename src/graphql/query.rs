@@ -4,6 +4,7 @@ use async_graphql::{Object, Result};
 
 use super::{GraphQLError, Scalar};
 use crate::{
+    audio::AudioObject,
     core::SortOrder,
     device::{
         mi_temp_monitor,
@@ -57,6 +58,10 @@ impl PianoQuery<'_> {
         self.0.is_connected().await
     }
 
+    async fn has_initialized(&self, audio_object: AudioObject) -> bool {
+        self.0.has_initialized(audio_object).await
+    }
+
     async fn is_recording(&self) -> Result<bool> {
         self.0
             .recording_storage
@@ -86,14 +91,26 @@ impl PianoQuery<'_> {
             .map_err(GraphQLError::extend)
     }
 
+    /// Takes a number in range `[0.00, 1.00]`, where `0.00` is the beginning of an audio source
+    /// and `1.00` is the end. Returns `false` if there is no playing (or paused) audio.
+    async fn seek_player(&self, percents: f64) -> Result<bool> {
+        self.0
+            .seek_player(percents)
+            .await
+            .map_err(GraphQLError::extend)
+    }
+
+    /// Is some recording playing now.
     async fn is_playing(&self) -> Result<bool> {
         self.0.is_playing().await.map_err(GraphQLError::extend)
     }
 
+    /// Returns `true` if there is was paused recording.
     async fn resume_player(&self) -> Result<bool> {
         self.0.resume_player().await.map_err(GraphQLError::extend)
     }
 
+    /// Returns `true` if there is was playing recording.
     async fn pause_player(&self) -> Result<bool> {
         self.0.pause_player().await.map_err(GraphQLError::extend)
     }

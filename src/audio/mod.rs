@@ -99,6 +99,8 @@ impl AudioSource {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display, async_graphql::Enum)]
+#[strum(serialize_all = "lowercase")]
 pub enum AudioObject {
     Player,
     Recorder,

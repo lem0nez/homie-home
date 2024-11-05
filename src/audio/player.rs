@@ -49,6 +49,7 @@ impl Default for PlaybackProperties {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct PlaybackPosition {
     current: Duration,
     /// [None] if total duration is unknown.

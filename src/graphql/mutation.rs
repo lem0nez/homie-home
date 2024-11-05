@@ -48,9 +48,10 @@ impl PianoMutation<'_> {
             .map_err(GraphQLError::extend)
     }
 
-    async fn stop_recording(&self) -> Result<PianoRecording> {
+    /// Stop recorder and preserve a new recording.
+    async fn stop_recorder(&self) -> Result<PianoRecording> {
         self.0
-            .stop_recording(piano::StopRecordingParams {
+            .stop_recorder(piano::StopRecorderParams {
                 triggered_by_user: true,
             })
             .await

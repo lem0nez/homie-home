@@ -224,8 +224,8 @@ impl Recording {
         Ok(Self {
             flac_path: flac_path.to_owned(),
             creation_time: creation_time.into(),
-            duration: Duration::from_secs(
-                stream_info.total_samples / stream_info.sample_rate as u64,
+            duration: Duration::from_millis(
+                stream_info.total_samples * 1000 / stream_info.sample_rate as u64,
             ),
         })
     }
@@ -262,9 +262,8 @@ impl Recording {
         format!("{:0>2}:{:0>2}", secs / 60, secs % 60)
     }
 
-    // There is no sense to use milliseconds as it's always rounded to seconds.
-    async fn duration_secs(&self) -> u64 {
-        self.duration.as_secs()
+    async fn duration_ms(&self) -> u64 {
+        self.duration.as_millis() as u64
     }
 
     async fn flac_endpoint(&self) -> String {
