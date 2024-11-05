@@ -241,10 +241,13 @@ impl Piano {
     }
 
     /// `check_interval` is an interval between responses. Stream finishes on the playback end.
+    ///
+    /// Passing self by value to avoid capturing self reference inside the stream,
+    /// that blocks capturing self by mutable reference while stream is running.
     pub async fn playback_position(
-        &self,
+        self,
         check_interval: Duration,
-    ) -> impl Stream<Item = PlaybackPosition> + '_ {
+    ) -> impl Stream<Item = PlaybackPosition> {
         stream! {
             loop {
                 if let Ok(Some(pos)) = self
