@@ -15,13 +15,13 @@ use subscription::SubscriptionRoot;
 pub type GraphQLSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 pub type GraphQLPlayground = String;
 
-// By default it supports only up to 32-bit integer.
 #[derive(Deserialize, Serialize)]
-struct Int64(i64);
-scalar!(Int64);
+struct Scalar<T>(T);
+// Default GraphQL integer is 32-bit.
+scalar!(Scalar<i64>, "Int64");
 
-impl Deref for Int64 {
-    type Target = i64;
+impl<T> Deref for Scalar<T> {
+    type Target = T;
 
     fn deref(&self) -> &Self::Target {
         &self.0

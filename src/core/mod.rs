@@ -85,7 +85,12 @@ impl<Tz: TimeZone> From<DateTime<Tz>> for Date {
     }
 }
 
-pub fn human_date_ago<Tz>(datetime: DateTime<Tz>) -> String
+pub struct HumanDateParams {
+    /// If `true`, time will be delimited with `-` instead of `:`.
+    pub filename_safe: bool,
+}
+
+pub fn human_date_ago<Tz>(datetime: DateTime<Tz>, params: HumanDateParams) -> String
 where
     Tz: TimeZone,
     Tz::Offset: Copy + Display,
@@ -97,7 +102,7 @@ where
     }
 
     let (date, now_date) = (Date::from(datetime), Date::from(now));
-    let time = datetime.format("%R");
+    let time = datetime.format(if params.filename_safe { "%H-%M" } else { "%R" });
     if date == now_date {
         return format!("Today at {time}");
     }

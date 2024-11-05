@@ -12,7 +12,7 @@ use tokio::{fs, io};
 
 use crate::{
     audio::{recorder::RECORDING_EXTENSION, AudioSource, AudioSourceError},
-    core::{human_date_ago, SortOrder},
+    core::{human_date_ago, HumanDateParams, SortOrder},
     graphql::GraphQLError,
 };
 
@@ -47,6 +47,18 @@ impl RecordingStorage {
         fs::try_exists(&self.unsaved_path())
             .await
             .map_err(RecordingStorageError::FileSystemError)
+    }
+
+    pub async fn get(&self, recording_id: i64) -> Result<Recording, RecordingStorageError> {
+        let path = self.path(&recording_id.to_string());
+        if !fs::try_exists(&path)
+            .await
+            .map_err(RecordingStorageError::FileSystemError)?
+        {
+            Err(RecordingStorageError::RecordingNotExists)
+        } else {
+            Recording::new(&path).map_err(RecordingStorageError::FailedToRead)
+        }
     }
 
     /// Returns recordings ordered by creation time.
@@ -132,6 +144,7 @@ impl RecordingStorage {
         fs::rename(path, &new_path)
             .await
             .map_err(RecordingStorageError::FileSystemError)?;
+        info!("New recording saved to {}", new_path.to_string_lossy());
 
         let self_clone = self.clone();
         tokio::spawn(async move { self_clone.remove_old_if_limit_reached().await });
@@ -155,28 +168,16 @@ impl RecordingStorage {
         }
     }
 
-    pub(super) async fn get(&self, recording_id: i64) -> Result<Recording, RecordingStorageError> {
-        let path = self.path(&recording_id.to_string());
-        if !fs::try_exists(&path)
-            .await
-            .map_err(RecordingStorageError::FileSystemError)?
-        {
-            Err(RecordingStorageError::RecordingNotExists)
-        } else {
-            Recording::new(&path).map_err(RecordingStorageError::FailedToRead)
-        }
+    /// Path of a temporary file which is used for the new recordings.
+    fn unsaved_path(&self) -> PathBuf {
+        self.path("new")
     }
 
-    /// `recording_basename` is a file name without the extension.
+    /// Takes a file name without the extension.
     fn path(&self, recording_basename: &str) -> PathBuf {
         let mut path = self.dir.clone();
         path.push(format!("{recording_basename}{RECORDING_EXTENSION}"));
         path
-    }
-
-    /// Path of a temporary file which is used for the new recordings.
-    fn unsaved_path(&self) -> PathBuf {
-        self.path("new")
     }
 }
 
@@ -194,7 +195,7 @@ pub enum ReadRecordingError {
 #[graphql(complex, name = "PianoRecording")]
 pub struct Recording {
     #[graphql(skip)]
-    flac_path: PathBuf,
+    pub flac_path: PathBuf,
     creation_time: DateTime<chrono::Local>,
     #[graphql(skip)]
     duration: Duration,
@@ -237,8 +238,8 @@ impl Recording {
         self.creation_time.timestamp_millis()
     }
 
-    fn human_creation_time(&self) -> String {
-        human_date_ago(self.creation_time)
+    pub fn human_creation_date(&self, params: HumanDateParams) -> String {
+        human_date_ago(self.creation_time, params)
     }
 }
 
@@ -249,20 +250,34 @@ impl Recording {
         self.id()
     }
 
-    #[graphql(name = "humanCreationTime")]
-    async fn human_creation_time_gql(&self) -> String {
-        self.human_creation_time()
+    #[graphql(name = "humanCreationDate")]
+    async fn human_creation_date_gql(&self) -> String {
+        self.human_creation_date(HumanDateParams {
+            filename_safe: false,
+        })
     }
 
-    async fn duration(&self) -> String {
+    async fn human_duration(&self) -> String {
         let secs = self.duration.as_secs();
         format!("{:0>2}:{:0>2}", secs / 60, secs % 60)
+    }
+
+    // There is no sense to use milliseconds as it's always rounded to seconds.
+    async fn duration_secs(&self) -> u64 {
+        self.duration.as_secs()
+    }
+
+    async fn flac_endpoint(&self) -> String {
+        format!("/api/piano/recording/{}", self.id())
     }
 }
 
 impl Display for Recording {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{} ({})", self.id(), self.human_creation_time())
+        let creation_date = self.human_creation_date(HumanDateParams {
+            filename_safe: false,
+        });
+        write!(f, "{} ({creation_date})", self.id())
     }
 }
 

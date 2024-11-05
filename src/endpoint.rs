@@ -1,12 +1,13 @@
 use std::process::Stdio;
 
+use actix_files::NamedFile;
 use actix_web::{
     body::BodyStream,
     cookie::{Cookie, SameSite},
-    error::ErrorInternalServerError,
+    error::{ErrorInternalServerError, ErrorNotFound},
     get,
-    http::header,
-    post, web, HttpRequest, HttpResponse, Responder,
+    http::header::{self, ContentDisposition, DispositionParam, DispositionType},
+    post, web, HttpRequest, HttpResponse, Responder, Result,
 };
 use actix_web_httpauth::middleware::HttpAuthentication;
 use async_graphql::Schema;
@@ -16,7 +17,12 @@ use serde::Deserialize;
 use tokio::process::Command;
 
 use crate::{
-    core::stdout_reader::StdoutReader, graphql::{GraphQLPlayground, GraphQLSchema}, rest::auth_validator
+    audio::recorder::RECORDING_EXTENSION,
+    core::{stdout_reader::StdoutReader, HumanDateParams},
+    device::piano::recordings::RecordingStorageError,
+    graphql::{GraphQLPlayground, GraphQLSchema},
+    rest::auth_validator,
+    App,
 };
 
 const BACKUP_MIME_TYPE: &str = "application/x-tar";
@@ -72,12 +78,12 @@ pub async fn graphql_subscription(
     request: HttpRequest,
     payload: web::Payload,
     schema: web::Data<GraphQLSchema>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse> {
     GraphQLSubscription::new(Schema::clone(&*schema)).start(&request, payload)
 }
 
 #[post("/api/backup", wrap = "HttpAuthentication::with_fn(auth_validator)")]
-pub async fn backup() -> actix_web::Result<HttpResponse> {
+pub async fn backup() -> Result<HttpResponse> {
     let mut child = Command::new("rpi-backup")
         .stdout(Stdio::piped())
         .stdin(Stdio::null())
@@ -97,7 +103,7 @@ pub async fn backup() -> actix_web::Result<HttpResponse> {
 }
 
 #[post("/api/poweroff", wrap = "HttpAuthentication::with_fn(auth_validator)")]
-pub async fn poweroff() -> actix_web::Result<HttpResponse> {
+pub async fn poweroff() -> Result<HttpResponse> {
     let result = Command::new("systemctl")
         .arg("poweroff")
         .output()
@@ -118,6 +124,41 @@ pub async fn poweroff() -> actix_web::Result<HttpResponse> {
         error!("Failed to power off: {output}");
         Err(ErrorInternalServerError(output.to_string()))
     }
+}
+
+#[get(
+    "/api/piano/recording/{id}",
+    wrap = "HttpAuthentication::with_fn(auth_validator)"
+)]
+pub async fn piano_recording(
+    request: HttpRequest,
+    recording_id: web::Path<i64>,
+    app: web::Data<App>,
+) -> Result<HttpResponse> {
+    let recording = app
+        .piano
+        .recording_storage
+        .get(*recording_id)
+        .await
+        .map_err(|err| match err {
+            RecordingStorageError::RecordingNotExists => ErrorNotFound("recording does not exist"),
+            err => ErrorInternalServerError(err),
+        })?;
+    NamedFile::open_async(&recording.flac_path)
+        .await
+        .map(|file| {
+            file.set_content_disposition(ContentDisposition {
+                disposition: DispositionType::Inline,
+                parameters: vec![DispositionParam::Filename(format!(
+                    "{}{RECORDING_EXTENSION}",
+                    recording.human_creation_date(HumanDateParams {
+                        filename_safe: true
+                    })
+                ))],
+            })
+            .into_response(&request)
+        })
+        .map_err(ErrorInternalServerError)
 }
 
 mod guard {

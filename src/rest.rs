@@ -1,6 +1,11 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use actix_web::{dev::ServiceRequest, error::ErrorUnauthorized, http::header, web::ServiceConfig};
+use actix_web::{
+    dev::ServiceRequest,
+    error::ErrorUnauthorized,
+    http::header,
+    web::{self, ServiceConfig},
+};
 use actix_web_httpauth::extractors::{
     bearer::{self, BearerAuth},
     AuthenticationError,
@@ -24,6 +29,7 @@ pub fn configure_service(service_config: &mut ServiceConfig, app: &App) {
         .service(endpoint::graphql_playground)
         .service(endpoint::backup)
         .service(endpoint::poweroff)
+        .service(endpoint::piano_recording)
         // Host the static files.
         .service(
             actix_files::Files::new("/", &*app.config.assets_dir.path(Asset::Site))
@@ -46,7 +52,7 @@ pub async fn auth_validator(
     }
 
     let access_token = request
-        .app_data::<App>()
+        .app_data::<web::Data<App>>()
         .expect("App data is not provided")
         .config
         .access_token

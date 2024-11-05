@@ -1,7 +1,6 @@
 use std::{fs::Permissions, io, ops::Deref, os::unix::fs::PermissionsExt, path::PathBuf};
 
 use anyhow::anyhow;
-use futures::TryFutureExt;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
@@ -81,8 +80,8 @@ impl PreferencesStorage {
             serde_yaml::to_string(&self.preferences)
                 .map_err(PreferencesUpdateError::SerializationFailed)?,
         )
-        .map_err(PreferencesUpdateError::FailedToSave)
         .await
+        .map_err(PreferencesUpdateError::FailedToSave)
     }
 }
 

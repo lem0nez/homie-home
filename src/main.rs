@@ -48,7 +48,8 @@ fn spawn_http_server(app: App) -> io::Result<()> {
     let (address, port) = (app.config.server_address.clone(), app.config.server_port);
     let server = HttpServer::new(move || {
         actix_web::App::new()
-            .app_data(app.clone())
+            // Data MUST be wrapped with [web::Data].
+            .app_data(web::Data::new(app.clone()))
             .app_data(web::Data::new(graphql::build_schema(app.clone())))
             .app_data(web::Data::new(graphql::build_playground()))
             .configure(|service_config| rest::configure_service(service_config, &app))

@@ -2,7 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use async_graphql::{Object, Result};
 
-use super::{GraphQLError, Int64};
+use super::{GraphQLError, Scalar};
 use crate::{
     core::SortOrder,
     device::{
@@ -78,7 +78,7 @@ impl PianoQuery<'_> {
     }
 
     /// If there is already playing recording, it will be stopped.
-    async fn play_recording(&self, id: Int64) -> Result<bool> {
+    async fn play_recording(&self, id: Scalar<i64>) -> Result<bool> {
         self.0
             .play_recording(*id)
             .await
