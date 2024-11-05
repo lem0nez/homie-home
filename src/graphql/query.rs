@@ -58,8 +58,14 @@ impl PianoQuery<'_> {
         self.0.is_connected().await
     }
 
-    async fn has_initialized(&self, audio_object: AudioObject) -> bool {
-        self.0.has_initialized(audio_object).await
+    /// Returns `true` if player is available.
+    async fn has_player(&self) -> bool {
+        self.0.has_initialized(AudioObject::Player).await
+    }
+
+    /// Returns `true` if recorder is available.
+    async fn has_recorder(&self) -> bool {
+        self.0.has_initialized(AudioObject::Recorder).await
     }
 
     async fn is_recording(&self) -> Result<bool> {
