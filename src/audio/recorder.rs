@@ -2,7 +2,7 @@ use std::{
     cmp,
     fs::{self, File},
     io, mem,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         atomic::{self, AtomicBool},
         mpsc::{self as std_mpsc, RecvTimeoutError},
@@ -14,8 +14,8 @@ use std::{
 use anyhow::anyhow;
 use cpal::{
     traits::{DeviceTrait, StreamTrait},
-    BuildStreamError, Device, PlayStreamError, SampleFormat, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigsError,
+    BuildStreamError, Device, PlayStreamError, Sample, SampleFormat, StreamError,
+    SupportedStreamConfig, SupportedStreamConfigsError,
 };
 use flac_bound::{FlacEncoder, FlacEncoderConfig, FlacEncoderState};
 use futures::executor;
@@ -30,6 +30,13 @@ pub const RECORDING_EXTENSION: &str = ".flac";
 type FLACSampleMax = i32;
 /// Maximum interval between checks whether audio processing should be stopped.
 const MAX_STOP_HANDLE_INTERVAL: Duration = Duration::from_millis(100);
+
+pub struct RecordParams {
+    /// Path of the output FLAC file. It will be created, so it must **not** exists.
+    pub out_flac: PathBuf,
+    /// If set, multiply every sample amplitude by the given value.
+    pub amplitude_scale: Option<f32>,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum RecordError {
@@ -143,16 +150,12 @@ impl Recorder {
         }
     }
 
-    /// Start capturing to the given `out_flac` FLAC file.
-    /// This file will be created, so it must **not** exists.
-    pub async fn start(&mut self, out_flac: &Path) -> Result<(), RecordError> {
+    pub async fn start(&mut self, params: RecordParams) -> Result<(), RecordError> {
         if self.record_handlers.is_some() {
             return Err(RecordError::AlreadyRecording);
         }
 
-        let mut file = File::create_new(out_flac).map_err(RecordError::CreateFileError)?;
-        let path = out_flac.to_owned();
-
+        let mut file = File::create_new(&params.out_flac).map_err(RecordError::CreateFileError)?;
         // We can't create stream encoder here, because it can't be moved between threads.
         let device = self.device.clone();
         let (stream_config, flac_compression_level) =
@@ -174,10 +177,10 @@ impl Recorder {
                 );
                 // We need to keep processed data even on fail.
                 if before_processing {
-                    if let Err(e) = fs::remove_file(&path) {
+                    if let Err(e) = fs::remove_file(&params.out_flac) {
                         error!(
                             "Failed to remove the output file {}: {e}",
-                            path.to_string_lossy()
+                            params.out_flac.to_string_lossy()
                         );
                     }
                 }
@@ -210,19 +213,25 @@ impl Recorder {
             let stream = match stream_config.sample_format() {
                 SampleFormat::I8 => device.build_input_stream(
                     build_config,
-                    move |samples: &[i8], _| send_samples(samples, &samples_tx),
+                    move |samples: &[i8], _| {
+                        scale_and_send_samples(samples, params.amplitude_scale, &samples_tx)
+                    },
                     err_callback,
                     None,
                 ),
                 SampleFormat::I16 => device.build_input_stream(
                     build_config,
-                    move |samples: &[i16], _| send_samples(samples, &samples_tx),
+                    move |samples: &[i16], _| {
+                        scale_and_send_samples(samples, params.amplitude_scale, &samples_tx)
+                    },
                     err_callback,
                     None,
                 ),
                 SampleFormat::I32 => device.build_input_stream(
                     build_config,
-                    move |samples: &[i32], _| send_samples(samples, &samples_tx),
+                    move |samples: &[i32], _| {
+                        scale_and_send_samples(samples, params.amplitude_scale, &samples_tx)
+                    },
                     err_callback,
                     None,
                 ),
@@ -239,11 +248,11 @@ impl Recorder {
                 return send_error(RecordError::CaptureFailed(e), true);
             }
             let _ = status_tx.blocking_send(StatusMessage::Initialized);
-            info!("Recording started to {}", path.to_string_lossy());
+            info!("Recording started to {}", params.out_flac.to_string_lossy());
 
             let result = processing_loop(ProcessingLoopInput {
                 stream_config,
-                out_file: &path,
+                out_file: &params.out_flac,
                 encoder,
                 shutdown_notify,
                 stop_trigger,
@@ -299,11 +308,24 @@ impl Drop for Recorder {
 
 type SamplesResult = Result<Vec<FLACSampleMax>, StreamError>;
 
-fn send_samples<T>(samples: &[T], tx: &std_mpsc::Sender<SamplesResult>)
-where
-    T: Copy + Into<FLACSampleMax>,
+fn scale_and_send_samples<T>(
+    samples: &[T],
+    amplitude_scale: Option<f32>,
+    tx: &std_mpsc::Sender<SamplesResult>,
+) where
+    T: Into<FLACSampleMax> + Sample<Float = f32>,
 {
-    let _ = tx.send(Ok(samples.iter().copied().map(T::into).collect()));
+    let _ = tx.send(Ok(samples
+        .iter()
+        .copied()
+        .map(|sample| {
+            amplitude_scale
+                // No overflow check needed as it's already done by the function.
+                .map(|amplitude| sample.mul_amp(amplitude))
+                .unwrap_or(sample)
+                .into()
+        })
+        .collect()));
 }
 
 struct ProcessingLoopInput<'a> {

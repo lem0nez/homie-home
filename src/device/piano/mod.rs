@@ -1,6 +1,6 @@
 pub mod recordings;
 
-use std::{ffi::OsString, fmt::Display, path::Path, sync::Arc, time::Duration};
+use std::{ffi::OsString, fmt::Display, sync::Arc, time::Duration};
 
 use async_stream::stream;
 use cpal::traits::{DeviceTrait, HostTrait};
@@ -12,14 +12,15 @@ use crate::{
     audio::{
         self,
         player::{PlaybackPosition, PlaybackProperties, Player, PlayerError},
-        recorder::{RecordError, Recorder},
+        recorder::{RecordError, RecordParams, Recorder},
         AudioObject, AudioSourceError, AudioSourceProperties, SoundLibrary,
     },
     bluetooth::A2DPSourceHandler,
-    config,
+    config::{self, Config},
     core::ShutdownNotify,
-    files::Sound,
+    files::{self, BaseDir, Sound},
     graphql::GraphQLError,
+    prefs::PreferencesStorage,
     SharedMutex,
 };
 use recordings::{Recording, RecordingStorage, RecordingStorageError};
@@ -99,8 +100,9 @@ impl GraphQLError for PlayRecordingError {}
 #[derive(Clone)]
 pub struct Piano {
     config: config::Piano,
-    sounds: SoundLibrary,
+    prefs: PreferencesStorage,
 
+    sounds: SoundLibrary,
     shutdown_notify: ShutdownNotify,
     /// Used to check whether an audio device is in use by a Bluetooth device.
     a2dp_source_handler: A2DPSourceHandler,
@@ -112,20 +114,23 @@ pub struct Piano {
 
 impl Piano {
     pub fn new(
-        config: config::Piano,
+        config: &Config,
+        prefs: PreferencesStorage,
         sounds: SoundLibrary,
         shutdown_notify: ShutdownNotify,
         a2dp_source_handler: A2DPSourceHandler,
-        recordings_dir: &Path,
     ) -> Self {
-        let recording_storage = RecordingStorage::new(recordings_dir, config.max_recordings);
         Self {
-            config,
+            config: config.piano.clone(),
+            prefs,
             sounds,
             shutdown_notify,
             a2dp_source_handler,
             inner: Arc::default(),
-            recording_storage,
+            recording_storage: RecordingStorage::new(
+                &config.data_dir.path(files::Data::PianoRecordings),
+                config.piano.max_recordings,
+            ),
         }
     }
 
@@ -141,17 +146,21 @@ impl Piano {
             .await
             .map_err(RecordControlError::PrepareFileError)
             .and_then(|path| path.ok_or(RecordControlError::AlreadyRecording))?;
-        let out_path_clone = out_path.clone();
+
+        let params = RecordParams {
+            out_flac: out_path.clone(),
+            amplitude_scale: self.prefs.read().await.piano_record_amplitude_scale,
+        };
         let result = self
-            .call_recorder(|recorder| async move { recorder.start(&out_path).await }.boxed())
+            .call_recorder(|recorder| async move { recorder.start(params).await }.boxed())
             .await;
 
         if let Err(e) = result {
-            if fs::try_exists(&out_path_clone).await.unwrap_or(true) {
-                if let Err(e) = fs::remove_file(&out_path_clone).await {
+            if fs::try_exists(&out_path).await.unwrap_or(true) {
+                if let Err(e) = fs::remove_file(&out_path).await {
                     error!(
                         "Failed to remove {} after recorder error: {e}",
-                        out_path_clone.to_string_lossy()
+                        out_path.to_string_lossy()
                     );
                 }
             }

@@ -81,11 +81,11 @@ impl App {
             .with_context(|| "Unable to create a connection to the message bus")?;
 
         let piano = Piano::new(
-            config.piano.clone(),
+            &config,
+            prefs.clone(),
             sounds.clone(),
             shutdown_notify.clone(),
             a2dp_source_handler.clone(),
-            &config.data_dir.path(Data::PianoRecordings),
         );
         if let Some(devpath) = piano.find_devpath() {
             let init_params = piano::InitParams {

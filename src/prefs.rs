@@ -44,9 +44,9 @@ struct OptionUpdate<T: InputType> {
     value: Option<T>,
 }
 
-impl<T: InputType> Into<Option<T>> for OptionUpdate<T> {
-    fn into(self) -> Option<T> {
-        self.value
+impl<T: InputType> From<OptionUpdate<T>> for Option<T> {
+    fn from(update: OptionUpdate<T>) -> Self {
+        update.value
     }
 }
 
