@@ -147,14 +147,17 @@ impl Piano {
             .map_err(RecordControlError::PrepareFileError)
             .and_then(|path| path.ok_or(RecordControlError::AlreadyRecording))?;
 
+        let prefs_lock = self.prefs.read().await;
         let params = RecordParams {
             out_flac: out_path.clone(),
-            amplitude_scale: self.prefs.read().await.piano_record_amplitude_scale,
+            amplitude_scale: prefs_lock.piano_record_amplitude_scale,
+            artist: prefs_lock.piano_recordings_artist.clone(),
         };
+        drop(prefs_lock);
+
         let result = self
             .call_recorder(|recorder| async move { recorder.start(params).await }.boxed())
             .await;
-
         if let Err(e) = result {
             if fs::try_exists(&out_path).await.unwrap_or(true) {
                 if let Err(e) = fs::remove_file(&out_path).await {

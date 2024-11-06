@@ -18,6 +18,8 @@ pub struct Preferences {
     pub hotspot_handling_enabled: bool,
     /// If set, multiply samples amplitude of piano recordings by the given float amplitude.
     pub piano_record_amplitude_scale: Option<f32>,
+    /// If provided, embed ARTIST metadata into the piano recordings using the given value.
+    pub piano_recordings_artist: Option<String>,
 }
 
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
@@ -36,10 +38,12 @@ pub struct PreferencesUpdate {
     hotspot_handling_enabled: Option<bool>,
     // If we want to set null, we must do it explicitly using OptionUpdate.
     piano_record_amplitude_scale: Option<OptionUpdate<f32>>,
+    piano_recordings_artist: Option<OptionUpdate<String>>,
 }
 
 #[derive(InputObject)]
 #[graphql(concrete(name = "OptionalFloatUpdate", params(f32)))]
+#[graphql(concrete(name = "OptionalStringUpdate", params(String)))]
 struct OptionUpdate<T: InputType> {
     value: Option<T>,
 }
@@ -91,6 +95,9 @@ impl PreferencesStorage {
         }
         if let Some(piano_record_amplitude_scale) = update.piano_record_amplitude_scale {
             prefs_lock.piano_record_amplitude_scale = piano_record_amplitude_scale.into();
+        }
+        if let Some(piano_recordings_artist) = update.piano_recordings_artist {
+            prefs_lock.piano_recordings_artist = piano_recordings_artist.into();
         }
 
         fs::write(

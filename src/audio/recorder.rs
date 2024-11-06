@@ -2,7 +2,7 @@ use std::{
     cmp,
     fs::{self, File},
     io, mem,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         atomic::{self, AtomicBool},
         mpsc::{self as std_mpsc, RecvTimeoutError},
@@ -36,6 +36,8 @@ pub struct RecordParams {
     pub out_flac: PathBuf,
     /// If set, multiply every sample amplitude by the given value.
     pub amplitude_scale: Option<f32>,
+    /// If set, embed ARTIST vorbis comment into the recording using the given value.
+    pub artist: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -251,8 +253,8 @@ impl Recorder {
             info!("Recording started to {}", params.out_flac.to_string_lossy());
 
             let result = processing_loop(ProcessingLoopInput {
+                params: &params,
                 stream_config,
-                out_file: &params.out_flac,
                 encoder,
                 shutdown_notify,
                 stop_trigger,
@@ -329,9 +331,9 @@ fn scale_and_send_samples<T>(
 }
 
 struct ProcessingLoopInput<'a> {
+    params: &'a RecordParams,
     /// Using it because in [cpal::StreamConfig] sample format is omitted.
     stream_config: SupportedStreamConfig,
-    out_file: &'a Path,
     encoder: FlacEncoder<'a>,
     shutdown_notify: ShutdownNotify,
     stop_trigger: Arc<AtomicBool>,
@@ -374,7 +376,7 @@ fn processing_loop(mut input: ProcessingLoopInput) -> Result<(), RecordError> {
             RecordError::FinishEncodingFailed(encoder.state()),
         ));
     }
-    if let Err(e) = embed_metadata(input.out_file, total_samples_per_channel) {
+    if let Err(e) = embed_metadata(input.params, total_samples_per_channel) {
         result = Err(RecordError::new_or_append(
             result,
             RecordError::EmbedMetadataError(e),
@@ -383,8 +385,8 @@ fn processing_loop(mut input: ProcessingLoopInput) -> Result<(), RecordError> {
     result
 }
 
-fn embed_metadata(flac_path: &Path, total_samples: u64) -> metaflac::Result<()> {
-    let mut tag = metaflac::Tag::read_from_path(flac_path)?;
+fn embed_metadata(params: &RecordParams, total_samples: u64) -> metaflac::Result<()> {
+    let mut tag = metaflac::Tag::read_from_path(&params.out_flac)?;
 
     let mut stream_info = tag.get_streaminfo().cloned().unwrap_or_default();
     // After encoding this field is missing.
@@ -395,6 +397,9 @@ fn embed_metadata(flac_path: &Path, total_samples: u64) -> metaflac::Result<()> 
     vorbis_comments.set_title(vec![chrono::Local::now()
         .format("%-d %B %Y, %R") // 6 November 2024, 15:58
         .to_string()]);
+    if let Some(artist) = &params.artist {
+        vorbis_comments.set_artist(vec![artist.clone()]);
+    }
 
     tag.save()
 }
