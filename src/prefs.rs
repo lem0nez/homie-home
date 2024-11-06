@@ -1,30 +1,23 @@
-use std::{fs::Permissions, io, ops::Deref, os::unix::fs::PermissionsExt, path::PathBuf};
+use std::{fs::Permissions, io, os::unix::fs::PermissionsExt, path::PathBuf, sync::Arc};
 
 use anyhow::anyhow;
+use async_graphql::{InputObject, InputType, SimpleObject};
 use serde::{Deserialize, Serialize};
-use tokio::fs;
+use tokio::{
+    fs,
+    sync::{RwLock, RwLockReadGuard},
+};
 
-use crate::{graphql::GraphQLError, App};
+use crate::{graphql::GraphQLError, SharedRwLock};
 
-#[derive(Clone, Copy, Deserialize, Serialize, async_graphql::SimpleObject)]
+#[derive(Default, Clone, Deserialize, Serialize, SimpleObject)]
 pub struct Preferences {
     /// Whether to disconnect from Wi-Fi access point if connected Bluetooth device is the same.
     /// It prevents audio freezing while hosting device plays it via Bluetooth.
     /// Hotspot configuration must be provided at server initialization to make it work.
     pub hotspot_handling_enabled: bool,
-}
-
-impl Default for Preferences {
-    fn default() -> Self {
-        Self {
-            hotspot_handling_enabled: false,
-        }
-    }
-}
-
-#[derive(async_graphql::InputObject)]
-pub struct PreferencesUpdate {
-    hotspot_handling_enabled: Option<bool>,
+    /// If set, multiply samples amplitude of piano recordings by the given float amplitude.
+    pub piano_record_amplitude_scale: Option<f32>,
 }
 
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
@@ -38,8 +31,28 @@ pub enum PreferencesUpdateError {
 
 impl GraphQLError for PreferencesUpdateError {}
 
+#[derive(InputObject)]
+pub struct PreferencesUpdate {
+    hotspot_handling_enabled: Option<bool>,
+    // If we want to set null, we must do it explicitly using OptionUpdate.
+    piano_record_amplitude_scale: Option<OptionUpdate<f32>>,
+}
+
+#[derive(InputObject)]
+#[graphql(concrete(name = "OptionalFloatUpdate", params(f32)))]
+struct OptionUpdate<T: InputType> {
+    value: Option<T>,
+}
+
+impl<T: InputType> Into<Option<T>> for OptionUpdate<T> {
+    fn into(self) -> Option<T> {
+        self.value
+    }
+}
+
+#[derive(Clone)]
 pub struct PreferencesStorage {
-    preferences: Preferences,
+    preferences: SharedRwLock<Preferences>,
     yaml_file: PathBuf,
 }
 
@@ -61,34 +74,31 @@ impl PreferencesStorage {
         };
 
         Ok(Self {
-            preferences,
+            preferences: Arc::new(RwLock::new(preferences)),
             yaml_file,
         })
     }
 
-    pub async fn update(
-        &mut self,
-        app: App,
-        update: PreferencesUpdate,
-    ) -> Result<(), PreferencesUpdateError> {
+    pub async fn read(&self) -> RwLockReadGuard<'_, Preferences> {
+        self.preferences.read().await
+    }
+
+    pub async fn update(&self, update: PreferencesUpdate) -> Result<(), PreferencesUpdateError> {
+        let mut prefs_lock = self.preferences.write().await;
+
         if let Some(hotspot_handling_enabled) = update.hotspot_handling_enabled {
-            self.preferences.hotspot_handling_enabled = hotspot_handling_enabled;
+            prefs_lock.hotspot_handling_enabled = hotspot_handling_enabled;
+        }
+        if let Some(piano_record_amplitude_scale) = update.piano_record_amplitude_scale {
+            prefs_lock.piano_record_amplitude_scale = piano_record_amplitude_scale.into();
         }
 
         fs::write(
             &self.yaml_file,
-            serde_yaml::to_string(&self.preferences)
+            serde_yaml::to_string(&*prefs_lock)
                 .map_err(PreferencesUpdateError::SerializationFailed)?,
         )
         .await
         .map_err(PreferencesUpdateError::FailedToSave)
-    }
-}
-
-impl Deref for PreferencesStorage {
-    type Target = Preferences;
-
-    fn deref(&self) -> &Self::Target {
-        &self.preferences
     }
 }

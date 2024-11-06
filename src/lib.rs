@@ -39,7 +39,7 @@ pub type SharedRwLock<T> = Arc<RwLock<T>>;
 #[derive(Clone)]
 pub struct App {
     pub config: Config,
-    pub prefs: SharedRwLock<PreferencesStorage>,
+    pub prefs: PreferencesStorage,
     pub sounds: SoundLibrary,
     pub shutdown_notify: ShutdownNotify,
 
@@ -60,16 +60,14 @@ impl App {
         a2dp_source_handler: A2DPSourceHandler,
     ) -> anyhow::Result<Self> {
         let prefs_path = config.data_dir.path(Data::Preferences);
-        let prefs = Arc::new(RwLock::new(
-            PreferencesStorage::open(prefs_path.clone())
-                .await
-                .with_context(|| {
-                    format!(
-                        "Unable to open the YAML configuration file {}",
-                        prefs_path.to_string_lossy()
-                    )
-                })?,
-        ));
+        let prefs = PreferencesStorage::open(prefs_path.clone())
+            .await
+            .with_context(|| {
+                format!(
+                    "Unable to open the YAML configuration file {}",
+                    prefs_path.to_string_lossy()
+                )
+            })?;
 
         info!("Loading sounds...");
         let sounds =

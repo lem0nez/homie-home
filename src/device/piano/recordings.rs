@@ -5,6 +5,7 @@ use std::{
     time::Duration,
 };
 
+use async_graphql::{ComplexObject, SimpleObject};
 use chrono::DateTime;
 use futures::future;
 use log::{error, info};
@@ -191,7 +192,7 @@ pub enum ReadRecordingError {
     InvalidFileName,
 }
 
-#[derive(async_graphql::SimpleObject)]
+#[derive(SimpleObject)]
 #[graphql(complex, name = "PianoRecording")]
 pub struct Recording {
     #[graphql(skip)]
@@ -243,7 +244,7 @@ impl Recording {
     }
 }
 
-#[async_graphql::ComplexObject]
+#[ComplexObject]
 impl Recording {
     #[graphql(name = "id")]
     async fn id_gql(&self) -> i64 {

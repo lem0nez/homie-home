@@ -23,7 +23,7 @@ impl QueryRoot {
     }
 
     async fn preferences(&self) -> Preferences {
-        **self.prefs.read().await
+        self.prefs.read().await.clone()
     }
 
     async fn lounge_temp_monitor_data(&self) -> Result<Option<mi_temp_monitor::Data>> {

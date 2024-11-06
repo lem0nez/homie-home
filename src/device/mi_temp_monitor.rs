@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
+use async_graphql::{ComplexObject, SimpleObject};
 use bluez_async::{
     BluetoothError, BluetoothEvent, BluetoothSession, CharacteristicEvent, CharacteristicId,
     DeviceInfo,
@@ -142,7 +143,7 @@ impl MiTempMonitor {
     }
 }
 
-#[derive(Clone, Copy, Debug, async_graphql::SimpleObject)]
+#[derive(Clone, Copy, Debug, SimpleObject)]
 #[graphql(complex, name = "MiTempMonitorData")]
 pub struct Data {
     timepoint: DateTime<chrono::Local>,
@@ -159,7 +160,7 @@ impl Data {
     }
 }
 
-#[async_graphql::ComplexObject]
+#[ComplexObject]
 impl Data {
     #[graphql(name = "batteryPercents")]
     async fn battery_percents_gql(&self) -> u8 {
