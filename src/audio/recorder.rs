@@ -385,10 +385,17 @@ fn processing_loop(mut input: ProcessingLoopInput) -> Result<(), RecordError> {
 
 fn embed_metadata(flac_path: &Path, total_samples: u64) -> metaflac::Result<()> {
     let mut tag = metaflac::Tag::read_from_path(flac_path)?;
+
     let mut stream_info = tag.get_streaminfo().cloned().unwrap_or_default();
     // After encoding this field is missing.
     stream_info.total_samples = total_samples;
     tag.set_streaminfo(stream_info);
+
+    let vorbis_comments = tag.vorbis_comments_mut();
+    vorbis_comments.set_title(vec![chrono::Local::now()
+        .format("%-d %B %Y, %R") // 6 November 2024, 15:58
+        .to_string()]);
+
     tag.save()
 }
 
