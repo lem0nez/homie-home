@@ -1,7 +1,7 @@
 # Homie Home
 Primarily this project written to cover my own needs, but you can find something useful for
 yourself. Also it has the [React frontend](https://github.com/lem0nez/homie-panel) which
-written mostly by AI.
+communicates with the server using GraphQL.
 
 ## Cross-compilation on Debian-based systems
 First you need to install the development libraries of ALSA, D-Bus, Udev and FLAC runtime
