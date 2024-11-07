@@ -65,6 +65,7 @@ rodio = { git = "https://github.com/lem0nez/rodio.git", branch = "v0.19.0-patch"
 bluez-async = "0.7.2"
 chrono = { version = "0.4.38", default-features = false }
 figment = { version = "0.10.19", features = ["env", "yaml"] }
+mime = "0.3.17"
 tokio-udev = "0.9.1"
 # We are using Bluetooth service and characteristic UUIDs.
 uuid = "1.10.0"

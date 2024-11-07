@@ -1,7 +1,6 @@
 use std::{
-    fs::{self, File, Permissions},
+    fs::{self, File},
     ops::Deref,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
 };
 
@@ -18,6 +17,8 @@ pub trait BaseDir<'a, T>: Clone + Deserialize<'a> + Validate {
 pub enum Asset {
     Site,
     Sound(Sound),
+    /// Optional cover image to embed into the piano recordings.
+    PianoRecordingCoverJPEG,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, strum::Display, EnumIter)]
@@ -44,17 +45,25 @@ impl BaseDir<'_, Asset> for AssetsDir {
     fn path(&self, item: Asset) -> PathEntry {
         const SOUNDS_EXTENSION: &str = ".wav";
 
-        let (relative_path, kind) = match item {
-            Asset::Site => ("site".into(), EntryKind::Directory),
+        let (relative_path, kind, requirement) = match item {
+            Asset::Site => (
+                "site".into(),
+                EntryKind::Directory,
+                Some(EntryRequirement::Exists),
+            ),
             Asset::Sound(sound) => (
                 Path::new("sounds").join(sound.to_string() + SOUNDS_EXTENSION),
                 EntryKind::File,
+                Some(EntryRequirement::Exists),
             ),
+            Asset::PianoRecordingCoverJPEG => {
+                ("piano-recording-cover.jpg".into(), EntryKind::File, None)
+            }
         };
         PathEntry {
             path: self.0.join(relative_path),
             kind,
-            requirement: Some(EntryRequirement::Exists),
+            requirement,
         }
     }
 }
@@ -68,7 +77,7 @@ impl Validate for AssetsDir {
         }
         .validate()?;
 
-        [Asset::Site]
+        [Asset::Site, Asset::PianoRecordingCoverJPEG]
             .into_iter()
             .try_for_each(|asset| self.path(asset).validate())?;
         Sound::iter().try_for_each(|sound| self.path(Asset::Sound(sound)).validate())
@@ -155,9 +164,9 @@ impl Validate for PathEntry {
             Ok(exists) => exists,
             Err(e) => return err(format_args!("unable to check existence ({e})")),
         };
-        let (matches_kind, create_perms) = match self.kind {
-            EntryKind::File => (self.path.is_file(), 0o600),
-            EntryKind::Directory => (self.path.is_dir(), 0o700),
+        let matches_kind = match self.kind {
+            EntryKind::File => self.path.is_file(),
+            EntryKind::Directory => self.path.is_dir(),
         };
 
         match self.requirement.unwrap() {
@@ -188,10 +197,6 @@ impl Validate for PathEntry {
                     };
                     if let Err(e) = create_result {
                         return err(format_args!("unable to create ({e})"));
-                    } else if let Err(e) =
-                        fs::set_permissions(&self.path, Permissions::from_mode(create_perms))
-                    {
-                        return err(format_args!("unable to change permissions ({e})"));
                     }
                 }
             }

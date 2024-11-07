@@ -1,6 +1,6 @@
 pub mod recordings;
 
-use std::{ffi::OsString, fmt::Display, sync::Arc, time::Duration};
+use std::{ffi::OsString, fmt::Display, path::Path, sync::Arc, time::Duration};
 
 use async_stream::stream;
 use cpal::traits::{DeviceTrait, HostTrait};
@@ -18,7 +18,7 @@ use crate::{
     bluetooth::A2DPSourceHandler,
     config::{self, Config},
     core::ShutdownNotify,
-    files::{self, BaseDir, Sound},
+    files::{self, Asset, AssetsDir, BaseDir, Sound},
     graphql::GraphQLError,
     prefs::PreferencesStorage,
     SharedMutex,
@@ -100,6 +100,7 @@ impl GraphQLError for PlayRecordingError {}
 #[derive(Clone)]
 pub struct Piano {
     config: config::Piano,
+    assets: AssetsDir,
     prefs: PreferencesStorage,
 
     sounds: SoundLibrary,
@@ -122,6 +123,7 @@ impl Piano {
     ) -> Self {
         Self {
             config: config.piano.clone(),
+            assets: config.assets_dir.clone(),
             prefs,
             sounds,
             shutdown_notify,
@@ -146,12 +148,21 @@ impl Piano {
             .await
             .map_err(RecordControlError::PrepareFileError)
             .and_then(|path| path.ok_or(RecordControlError::AlreadyRecording))?;
+        let front_cover_jpeg = self
+            .inner
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(RecordControlError::Error(AudioError::PianoNotConnected))?
+            .recording_cover_jpeg
+            .clone();
 
         let prefs_lock = self.prefs.read().await;
         let params = RecordParams {
             out_flac: out_path.clone(),
             amplitude_scale: prefs_lock.piano_record_amplitude_scale,
             artist: prefs_lock.piano_recordings_artist.clone(),
+            front_cover_jpeg,
         };
         drop(prefs_lock);
 
@@ -406,7 +417,10 @@ impl Piano {
             warn!("Initialization skipped, because it's already done");
             return;
         }
-        *inner = Some(InnerInitialized::new(devpath));
+        *inner = Some(
+            // To save a little bit of memory, store an image only while piano is connected.
+            InnerInitialized::new(devpath, &self.assets.path(Asset::PianoRecordingCoverJPEG)).await,
+        );
         info!("Piano initialized");
 
         if !self.a2dp_source_handler.has_connected().await {
@@ -604,6 +618,7 @@ impl Drop for Piano {
 
 struct InnerInitialized {
     devpath: OsString,
+    recording_cover_jpeg: Option<Vec<u8>>,
     /// Will be [None] if audio device is in use now.
     device: Option<cpal::Device>,
     /// Set to [None] if `device` is not set or if player initialization failed.
@@ -614,9 +629,35 @@ struct InnerInitialized {
 }
 
 impl InnerInitialized {
-    fn new(devpath: OsString) -> Self {
+    async fn new(devpath: OsString, recording_cover_jpeg: &Path) -> Self {
+        let recording_cover_jpeg = match fs::try_exists(recording_cover_jpeg).await {
+            Ok(exists) => {
+                if exists {
+                    fs::read(recording_cover_jpeg)
+                        .await
+                        .inspect(|bytes| {
+                            info!("Recordings cover image loaded ({} kB)", bytes.len() / 1000);
+                        })
+                        .map_err(|e| {
+                            let path_str = recording_cover_jpeg.to_string_lossy();
+                            error!("Failed to read {path_str}: {e}")
+                        })
+                        .ok()
+                } else {
+                    None
+                }
+            }
+            Err(e) => {
+                error!(
+                    "Failed to check existence of {}: {e}",
+                    recording_cover_jpeg.to_string_lossy()
+                );
+                None
+            }
+        };
         Self {
             devpath,
+            recording_cover_jpeg,
             device: None,
             player: None,
             recorder: None,

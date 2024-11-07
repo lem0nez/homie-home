@@ -267,7 +267,7 @@ impl Recording {
         self.duration.as_millis() as u64
     }
 
-    async fn flac_endpoint(&self) -> String {
+    async fn api_endpoint(&self) -> String {
         format!("/api/piano/recording/{}", self.id())
     }
 }

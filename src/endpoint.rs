@@ -148,7 +148,7 @@ pub async fn piano_recording(
         .await
         .map(|file| {
             file.set_content_disposition(ContentDisposition {
-                disposition: DispositionType::Inline,
+                disposition: DispositionType::Attachment,
                 parameters: vec![DispositionParam::Filename(format!(
                     "{}{RECORDING_EXTENSION}",
                     recording.human_creation_date(HumanDateParams {

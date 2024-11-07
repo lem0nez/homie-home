@@ -1415,6 +1415,7 @@ dependencies = [
  "futures",
  "log",
  "metaflac",
+ "mime",
  "rodio",
  "serde",
  "serde_valid",

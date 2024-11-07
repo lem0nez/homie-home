@@ -20,6 +20,7 @@ use cpal::{
 use flac_bound::{FlacEncoder, FlacEncoderConfig, FlacEncoderState};
 use futures::executor;
 use log::{error, info};
+use metaflac::block::PictureType;
 use tokio::{sync::mpsc as tokio_mpsc, task};
 
 use crate::{audio, config, core::ShutdownNotify};
@@ -38,6 +39,8 @@ pub struct RecordParams {
     pub amplitude_scale: Option<f32>,
     /// If set, embed ARTIST vorbis comment into the recording using the given value.
     pub artist: Option<String>,
+    /// Recording's front cover image in the JPEG format.
+    pub front_cover_jpeg: Option<Vec<u8>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -158,6 +161,10 @@ impl Recorder {
         }
 
         let mut file = File::create_new(&params.out_flac).map_err(RecordError::CreateFileError)?;
+        // To avoid cloning of the entire RecordParams which can be huge,
+        // because it contains an image.
+        let out_flac = params.out_flac.clone();
+
         // We can't create stream encoder here, because it can't be moved between threads.
         let device = self.device.clone();
         let (stream_config, flac_compression_level) =
@@ -179,10 +186,10 @@ impl Recorder {
                 );
                 // We need to keep processed data even on fail.
                 if before_processing {
-                    if let Err(e) = fs::remove_file(&params.out_flac) {
+                    if let Err(e) = fs::remove_file(&out_flac) {
                         error!(
                             "Failed to remove the output file {}: {e}",
-                            params.out_flac.to_string_lossy()
+                            out_flac.to_string_lossy()
                         );
                     }
                 }
@@ -253,7 +260,7 @@ impl Recorder {
             info!("Recording started to {}", params.out_flac.to_string_lossy());
 
             let result = processing_loop(ProcessingLoopInput {
-                params: &params,
+                params,
                 stream_config,
                 encoder,
                 shutdown_notify,
@@ -331,7 +338,7 @@ fn scale_and_send_samples<T>(
 }
 
 struct ProcessingLoopInput<'a> {
-    params: &'a RecordParams,
+    params: RecordParams,
     /// Using it because in [cpal::StreamConfig] sample format is omitted.
     stream_config: SupportedStreamConfig,
     encoder: FlacEncoder<'a>,
@@ -385,7 +392,7 @@ fn processing_loop(mut input: ProcessingLoopInput) -> Result<(), RecordError> {
     result
 }
 
-fn embed_metadata(params: &RecordParams, total_samples: u64) -> metaflac::Result<()> {
+fn embed_metadata(params: RecordParams, total_samples: u64) -> metaflac::Result<()> {
     let mut tag = metaflac::Tag::read_from_path(&params.out_flac)?;
 
     let mut stream_info = tag.get_streaminfo().cloned().unwrap_or_default();
@@ -401,6 +408,13 @@ fn embed_metadata(params: &RecordParams, total_samples: u64) -> metaflac::Result
         vorbis_comments.set_artist(vec![artist.clone()]);
     }
 
+    if let Some(front_cover_jpeg) = params.front_cover_jpeg {
+        tag.add_picture(
+            mime::JPEG.as_str(),
+            PictureType::CoverFront,
+            front_cover_jpeg,
+        );
+    }
     tag.save()
 }
 

@@ -1,4 +1,4 @@
-use std::{fs::Permissions, io, os::unix::fs::PermissionsExt, path::PathBuf, sync::Arc};
+use std::{io, path::PathBuf, sync::Arc};
 
 use anyhow::anyhow;
 use async_graphql::{InputObject, InputType, SimpleObject};
@@ -72,8 +72,6 @@ impl PreferencesStorage {
         } else {
             let default = Preferences::default();
             fs::write(&yaml_file, serde_yaml::to_string(&default)?).await?;
-            // Only owner can access this file.
-            fs::set_permissions(&yaml_file, Permissions::from_mode(0o600)).await?;
             default
         };
 
