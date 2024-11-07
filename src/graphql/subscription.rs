@@ -29,7 +29,7 @@ impl SubscriptionRoot {
             .await
     }
 
-    /// Respond every `check_interval_ms` about the current playback position.
+    /// Respond every `checkIntervalMs` about the current playback position.
     /// Stream will be closed on playback end or
     /// even will not be started if there is no playing (or paused) audio.
     async fn piano_playback_position(

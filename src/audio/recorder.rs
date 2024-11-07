@@ -351,7 +351,9 @@ struct ProcessingLoopInput<'a> {
 fn processing_loop(mut input: ProcessingLoopInput) -> Result<(), RecordError> {
     let mut total_samples_per_channel = 0;
     let mut result = loop {
-        if input.stop_trigger.load(atomic::Ordering::Relaxed) || input.shutdown_notify.triggered() {
+        if input.stop_trigger.load(atomic::Ordering::Relaxed)
+            || input.shutdown_notify.is_triggered()
+        {
             break Ok(());
         }
 

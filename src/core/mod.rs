@@ -4,7 +4,6 @@ pub mod stdout_reader;
 use std::{
     fmt::Display,
     io,
-    ops::Deref,
     sync::{
         atomic::{self, AtomicBool},
         Arc,
@@ -93,23 +92,24 @@ impl ShutdownNotify {
                 _ = sigint.recv() => shutdown_info("SIGINT"),
                 _ = sigterm.recv() => shutdown_info("SIGTERM"),
             }
-            this_half.notify_waiters();
-            this_half.triggered.store(true, atomic::Ordering::Relaxed);
             event_broadcaster.send(GlobalEvent::Shutdown);
+            this_half.triggered.store(true, atomic::Ordering::Relaxed);
+            this_half.notify.notify_waiters();
         });
         Ok(this)
     }
 
-    pub fn triggered(&self) -> bool {
-        self.triggered.load(atomic::Ordering::Relaxed)
+    /// Wait for shutdown or return immediately if it has been triggered.
+    pub async fn notified(&self) {
+        if self.is_triggered() {
+            return;
+        }
+        self.notify.notified().await
     }
-}
 
-impl Deref for ShutdownNotify {
-    type Target = Notify;
-
-    fn deref(&self) -> &Self::Target {
-        &self.notify
+    /// Returns `true` if shutdown was triggered.
+    pub fn is_triggered(&self) -> bool {
+        self.triggered.load(atomic::Ordering::Relaxed)
     }
 }
 
