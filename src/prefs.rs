@@ -8,7 +8,7 @@ use tokio::{
     sync::{RwLock, RwLockReadGuard},
 };
 
-use crate::{graphql::GraphQLError, SharedRwLock};
+use crate::{graphql::GraphQLError, App, GlobalEvent, SharedRwLock};
 
 #[derive(Default, Clone, Deserialize, Serialize, SimpleObject)]
 pub struct Preferences {
@@ -85,7 +85,11 @@ impl PreferencesStorage {
         self.preferences.read().await
     }
 
-    pub async fn update(&self, update: PreferencesUpdate) -> Result<(), PreferencesUpdateError> {
+    pub async fn update(
+        &self,
+        app: &App,
+        update: PreferencesUpdate,
+    ) -> Result<(), PreferencesUpdateError> {
         let mut prefs_lock = self.preferences.write().await;
 
         if let Some(hotspot_handling_enabled) = update.hotspot_handling_enabled {
@@ -98,6 +102,7 @@ impl PreferencesStorage {
             prefs_lock.piano_recordings_artist = piano_recordings_artist.into();
         }
 
+        app.event_broadcaster.send(GlobalEvent::PreferencesUpdated);
         fs::write(
             &self.yaml_file,
             serde_yaml::to_string(&*prefs_lock)

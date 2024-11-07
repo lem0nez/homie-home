@@ -21,6 +21,8 @@ use tokio::{
     sync::{broadcast, Notify},
 };
 
+use crate::GlobalEvent;
+
 #[derive(Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
 pub enum SortOrder {
     Ascending,
@@ -75,7 +77,7 @@ pub struct ShutdownNotify {
 }
 
 impl ShutdownNotify {
-    pub fn listen() -> io::Result<Self> {
+    pub fn listen(event_broadcaster: Broadcaster<GlobalEvent>) -> io::Result<Self> {
         let mut sigint = signal(SignalKind::interrupt())?;
         let mut sigterm = signal(SignalKind::terminate())?;
         let shutdown_info = |signal| info!("{signal} received: notifying about shutdown...");
@@ -93,6 +95,7 @@ impl ShutdownNotify {
             }
             this_half.notify_waiters();
             this_half.triggered.store(true, atomic::Ordering::Relaxed);
+            event_broadcaster.send(GlobalEvent::Shutdown);
         });
         Ok(this)
     }

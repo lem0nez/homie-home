@@ -100,6 +100,20 @@ impl GraphQLError for PlayRecordingError {}
 #[derive(Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
 pub enum PianoEvent {
     PianoConnected,
+    PianoRemoved,
+
+    PlayerInitialized,
+    RecorderInitialized,
+    /// Indicates that player and recorder became unavailable.
+    AudioReleased,
+
+    /// Triggered on play or resume.
+    PlayerPlay,
+    PlayerPause,
+
+    RecordStart,
+    NewRecordingSaved,
+    OldRecordingsRemoved,
 }
 
 #[derive(Clone)]
@@ -187,6 +201,7 @@ impl Piano {
             }
             Err(RecordControlError::Error(e))
         } else {
+            self.event_broadcaster.send(PianoEvent::RecordStart);
             self.play_sound(Sound::RecordStart).await;
             Ok(())
         }
@@ -206,7 +221,7 @@ impl Piano {
             return Err(RecordControlError::NotRecording);
         }
 
-        let stop_succeed = if self.has_initialized(AudioObject::Recorder).await {
+        let recorder_succeed = if self.has_initialized(AudioObject::Recorder).await {
             let result = self
                 .call_recorder(|recorder| async { recorder.stop().await }.boxed())
                 .await;
@@ -218,15 +233,18 @@ impl Piano {
             true
         };
 
-        // Try to preserve a recording even if failed to stop the recorder.
+        // Try to preserve a recording even if recorder failed.
         let preserve_result = self
             .recording_storage
-            .preserve_new()
+            .preserve_new(self.event_broadcaster.clone())
             .await
             .map_err(RecordControlError::PreserveRecordingError)
             .and_then(|path| path.ok_or(RecordControlError::NotRecording));
+        if preserve_result.is_ok() {
+            self.event_broadcaster.send(PianoEvent::NewRecordingSaved);
+        }
         if params.triggered_by_user {
-            self.play_sound(if stop_succeed && preserve_result.is_ok() {
+            self.play_sound(if recorder_succeed && preserve_result.is_ok() {
                 Sound::RecordStop
             } else {
                 Sound::Error
@@ -259,6 +277,7 @@ impl Piano {
         self.call_player(|player| async { player.play(source, props).await }.boxed())
             .await
             .map_err(PlayRecordingError::Error)?;
+        self.event_broadcaster.send(PianoEvent::PlayerPlay);
         self.play_sound(Sound::Play).await;
         Ok(())
     }
@@ -306,6 +325,7 @@ impl Piano {
             .call_player(|player| async { player.resume().await }.boxed())
             .await?;
         if resumed {
+            self.event_broadcaster.send(PianoEvent::PlayerPlay);
             self.play_sound(Sound::PauseResume).await;
         }
         Ok(resumed)
@@ -316,6 +336,7 @@ impl Piano {
             .call_player(|player| async { player.pause().await }.boxed())
             .await?;
         if paused {
+            self.event_broadcaster.send(PianoEvent::PlayerPause);
             self.play_sound(Sound::PauseResume).await;
         }
         Ok(paused)
@@ -405,6 +426,7 @@ impl Piano {
 
             if devpath_matches {
                 *inner = None;
+                self.event_broadcaster.send(PianoEvent::PianoRemoved);
                 info!("Piano removed");
                 drop(inner);
                 let _ = self
@@ -424,8 +446,8 @@ impl Piano {
             warn!("Initialization skipped, because it's already done");
             return;
         }
+        // To avoid unnecessary image clones and save the memory, store it inside the shared inner.
         *inner = Some(
-            // To save a little bit of memory, store an image only while piano is connected.
             InnerInitialized::new(devpath, &self.assets.path(Asset::PianoRecordingCoverJPEG)).await,
         );
         self.event_broadcaster.send(PianoEvent::PianoConnected);
@@ -457,6 +479,7 @@ impl Piano {
         if self.a2dp_source_handler.has_connected().await {
             if inner.device.is_some() {
                 inner.release_audio();
+                self.event_broadcaster.send(PianoEvent::AudioReleased);
                 info!("Audio device released");
                 drop(inner_lock);
                 let _ = self
@@ -489,8 +512,9 @@ impl Piano {
 
         if inner.player.is_none() {
             let shared_inner = Arc::clone(&self.inner);
+            let event_broadcaster = self.event_broadcaster.clone();
             // It may take a long time retrying to get the output stream configuration.
-            tokio::spawn(async { Self::init_player(shared_inner).await });
+            tokio::spawn(async { Self::init_player(shared_inner, event_broadcaster).await });
         }
 
         if inner.recorder.is_none() {
@@ -499,13 +523,19 @@ impl Piano {
                 device,
                 self.shutdown_notify.clone(),
             ) {
-                Ok(recorder) => inner.recorder = Some(recorder),
+                Ok(recorder) => {
+                    inner.recorder = Some(recorder);
+                    self.event_broadcaster.send(PianoEvent::RecorderInitialized);
+                }
                 Err(e) => error!("Failed to initialize the recorder: {e}"),
             };
         }
     }
 
-    async fn init_player(inner: SharedMutex<Option<InnerInitialized>>) {
+    async fn init_player(
+        inner: SharedMutex<Option<InnerInitialized>>,
+        event_broadcaster: Broadcaster<PianoEvent>,
+    ) {
         info!("Retrieving the default output stream format...");
         let result =
             backoff::future::retry(config::backoff::audio_output_stream_wait(), || async {
@@ -539,9 +569,12 @@ impl Piano {
                     audio::stream_info(&default_stream_config)
                 );
                 match Player::new(device, default_stream_config).await {
-                    // Unwrapping because inner checked in the backoff operation
-                    // and it can't be changed as inner is locked.
-                    Ok(player) => inner_lock.as_mut().unwrap().player = Some(player),
+                    Ok(player) => {
+                        // Unwrapping because inner checked in the backoff operation
+                        // and it can't be changed as inner is locked.
+                        inner_lock.as_mut().unwrap().player = Some(player);
+                        event_broadcaster.send(PianoEvent::PlayerInitialized);
+                    }
                     Err(e) => error!("Player initialization failed: {e}"),
                 }
             }

@@ -9,13 +9,19 @@ use super::GraphQLError;
 use crate::{
     audio::player::PlaybackPosition,
     device::{mi_temp_monitor, piano::PianoEvent},
-    App,
+    App, GlobalEvent,
 };
 
 pub struct SubscriptionRoot(pub(super) App);
 
 #[Subscription]
 impl SubscriptionRoot {
+    async fn global_events(&self) -> impl Stream<Item = GlobalEvent> {
+        self.event_broadcaster
+            .recv_continuously(self.shutdown_notify.clone())
+            .await
+    }
+
     async fn piano_events(&self) -> impl Stream<Item = PianoEvent> {
         self.piano
             .event_broadcaster

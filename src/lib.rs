@@ -21,7 +21,7 @@ use tokio::sync::{Mutex, RwLock};
 use audio::SoundLibrary;
 use bluetooth::{A2DPSourceHandler, Bluetooth, DeviceHolder};
 use config::Config;
-use core::ShutdownNotify;
+use core::{Broadcaster, ShutdownNotify};
 use dbus::DBus;
 use device::{
     description::LoungeTempMonitor,
@@ -35,12 +35,19 @@ use prefs::PreferencesStorage;
 pub type SharedMutex<T> = Arc<Mutex<T>>;
 pub type SharedRwLock<T> = Arc<RwLock<T>>;
 
+#[derive(Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
+pub enum GlobalEvent {
+    Shutdown,
+    PreferencesUpdated,
+}
+
 /// Main object to access all the stuff: configuration, services, devices etc.
 #[derive(Clone)]
 pub struct App {
     pub config: Config,
     pub prefs: PreferencesStorage,
     pub sounds: SoundLibrary,
+    pub event_broadcaster: Broadcaster<GlobalEvent>,
     pub shutdown_notify: ShutdownNotify,
 
     pub dbus: DBus,
@@ -74,8 +81,9 @@ impl App {
             SoundLibrary::load(&config.assets_dir).with_context(|| "Unable to load sounds")?;
         info!("Sounds loaded");
 
-        let shutdown_notify =
-            ShutdownNotify::listen().with_context(|| "Unable to listen for shutdown signals")?;
+        let event_broadcaster = Broadcaster::default();
+        let shutdown_notify = ShutdownNotify::listen(event_broadcaster.clone())
+            .with_context(|| "Unable to listen for shutdown signals")?;
         let dbus = DBus::new()
             .await
             .with_context(|| "Unable to create a connection to the message bus")?;
@@ -107,6 +115,7 @@ impl App {
             config,
             prefs,
             sounds,
+            event_broadcaster,
             shutdown_notify,
 
             dbus,

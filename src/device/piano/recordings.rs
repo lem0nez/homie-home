@@ -11,9 +11,10 @@ use futures::future;
 use log::{error, info};
 use tokio::{fs, io};
 
+use super::PianoEvent;
 use crate::{
     audio::{recorder::RECORDING_EXTENSION, AudioSource, AudioSourceError},
-    core::{human_date_ago, HumanDateParams, SortOrder},
+    core::{human_date_ago, Broadcaster, HumanDateParams, SortOrder},
     graphql::GraphQLError,
 };
 
@@ -120,7 +121,10 @@ impl RecordingStorage {
     }
 
     /// Returns [None] if recording is not in process.
-    pub(super) async fn preserve_new(&self) -> Result<Option<Recording>, RecordingStorageError> {
+    pub(super) async fn preserve_new(
+        &self,
+        event_broadcaster: Broadcaster<PianoEvent>,
+    ) -> Result<Option<Recording>, RecordingStorageError> {
         let path = self.unsaved_path();
         if !fs::try_exists(&path)
             .await
@@ -148,25 +152,37 @@ impl RecordingStorage {
         info!("New recording saved to {}", new_path.to_string_lossy());
 
         let self_clone = self.clone();
-        tokio::spawn(async move { self_clone.remove_old_if_limit_reached().await });
+        tokio::spawn(async move {
+            if self_clone.remove_old_if_limit_reached().await != 0 {
+                event_broadcaster.send(PianoEvent::OldRecordingsRemoved);
+            }
+        });
         Recording::new(&new_path)
             .map(Some)
             .map_err(RecordingStorageError::FailedToRead)
     }
 
-    async fn remove_old_if_limit_reached(&self) {
+    /// Returns number of removed recordings.
+    async fn remove_old_if_limit_reached(&self) -> usize {
         // List from the newest to the oldest.
         let old_recordings = match self.list(SortOrder::Descending).await {
             Ok(recordings) => recordings.into_iter().skip(self.max_recordings as usize),
-            Err(e) => return error!("Failed to list old recordings: {e}"),
+            Err(e) => {
+                error!("Failed to list old recordings: {e}");
+                return 0;
+            }
         };
+
+        let mut removed_recordings_count = 0;
         for old_recording in old_recordings {
             if let Err(e) = fs::remove_file(&old_recording.flac_path).await {
                 error!("Failed to remove old recording {old_recording}: {e}");
             } else {
                 info!("Old recording {old_recording} removed");
+                removed_recordings_count += 1;
             }
         }
+        removed_recordings_count
     }
 
     /// Path of a temporary file which is used for the new recordings.

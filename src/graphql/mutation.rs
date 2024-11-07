@@ -19,7 +19,7 @@ impl MutationRoot {
 
     async fn update_preferences(&self, update: PreferencesUpdate) -> Result<bool> {
         self.prefs
-            .update(update)
+            .update(self, update)
             .await
             .map(|_| true)
             .map_err(GraphQLError::extend)

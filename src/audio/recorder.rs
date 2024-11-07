@@ -47,7 +47,7 @@ pub struct RecordParams {
 pub enum RecordError {
     #[error("already recording")]
     AlreadyRecording,
-    #[error("recording has not been started")]
+    #[error("recorder has not been started")]
     NotRecording,
     #[error("unable to create a new output file ({0})")]
     CreateFileError(io::Error),
@@ -95,7 +95,7 @@ pub struct Recorder {
     stream_config: SupportedStreamConfig,
     flac_compression_level: u32,
 
-    /// Used to stop recording if the program is terminating.
+    /// Used to stop the recorder if the program is terminating.
     shutdown_notify: ShutdownNotify,
     /// Set to [Some] if recording is in process.
     record_handlers: Option<RecordHandlers>,
@@ -272,7 +272,7 @@ impl Recorder {
                 send_error(e, false);
             } else {
                 let _ = status_tx.blocking_send(StatusMessage::Finished);
-                info!("Recording finished");
+                info!("Record finished");
             }
         });
 
@@ -294,7 +294,7 @@ impl Recorder {
                 Some(StatusMessage::Error(e)) => Err(e),
                 Some(StatusMessage::Finished) => Ok(()),
                 Some(StatusMessage::Initialized) => {
-                    panic!("initialization must be handled when starting recording")
+                    panic!("initialization must be handled when recorder starts")
                 }
                 None => Err(RecordError::ProcessingTerminated),
             }
