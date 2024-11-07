@@ -6,12 +6,23 @@ use futures::Stream;
 use tokio::select;
 
 use super::GraphQLError;
-use crate::{audio::player::PlaybackPosition, device::mi_temp_monitor, App};
+use crate::{
+    audio::player::PlaybackPosition,
+    device::{mi_temp_monitor, piano::PianoEvent},
+    App,
+};
 
 pub struct SubscriptionRoot(pub(super) App);
 
 #[Subscription]
 impl SubscriptionRoot {
+    async fn piano_events(&self) -> impl Stream<Item = PianoEvent> {
+        self.piano
+            .event_broadcaster
+            .recv_continuously(self.shutdown_notify.clone())
+            .await
+    }
+
     /// Respond every `check_interval_ms` about the current playback position.
     /// Stream will be closed on playback end or
     /// even will not be started if there is no playing (or paused) audio.

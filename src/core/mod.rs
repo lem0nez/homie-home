@@ -11,18 +11,61 @@ use std::{
     },
 };
 
+use async_stream::stream;
 use chrono::{DateTime, Datelike, Days, TimeDelta, TimeZone, Utc};
-use log::info;
+use futures::Stream;
+use log::{error, info};
 use tokio::{
     select,
     signal::unix::{signal, SignalKind},
-    sync::Notify,
+    sync::{broadcast, Notify},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
 pub enum SortOrder {
     Ascending,
     Descending,
+}
+
+const BROADCASTER_CHANNEL_CAPACITY: usize = 10;
+
+#[derive(Clone)]
+pub struct Broadcaster<T>(broadcast::Sender<T>);
+
+impl<T: Clone> Broadcaster<T> {
+    pub fn send(&self, value: T) {
+        // Ignore if there is no receivers.
+        let _ = self.0.send(value);
+    }
+
+    /// Stream will close if there is no more self instances or at server shutdown.
+    pub async fn recv_continuously(
+        &self,
+        shutdown_notify: ShutdownNotify,
+    ) -> impl Stream<Item = T> {
+        let mut receiver = self.0.subscribe();
+        stream! {
+            loop {
+                select! {
+                    result = receiver.recv() => match result {
+                        Ok(value) => yield value,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                        Err(broadcast::error::RecvError::Lagged(messages_count)) => {
+                            // Increase BROADCASTER_CHANNEL_CAPACITY if you are see this error.
+                            error!("{messages_count} broadcast message(s) was lost");
+                        }
+                    },
+                    _ = shutdown_notify.notified() => break,
+                }
+            }
+        }
+    }
+}
+
+impl<T> Default for Broadcaster<T> {
+    fn default() -> Self {
+        Self(broadcast::Sender::new(BROADCASTER_CHANNEL_CAPACITY))
+    }
 }
 
 #[derive(Clone)]

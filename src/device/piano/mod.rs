@@ -17,7 +17,7 @@ use crate::{
     },
     bluetooth::A2DPSourceHandler,
     config::{self, Config},
-    core::ShutdownNotify,
+    core::{Broadcaster, ShutdownNotify},
     files::{self, Asset, AssetsDir, BaseDir, Sound},
     graphql::GraphQLError,
     prefs::PreferencesStorage,
@@ -97,6 +97,11 @@ pub enum PlayRecordingError {
 
 impl GraphQLError for PlayRecordingError {}
 
+#[derive(Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
+pub enum PianoEvent {
+    PianoConnected,
+}
+
 #[derive(Clone)]
 pub struct Piano {
     config: config::Piano,
@@ -108,6 +113,7 @@ pub struct Piano {
     /// Used to check whether an audio device is in use by a Bluetooth device.
     a2dp_source_handler: A2DPSourceHandler,
 
+    pub event_broadcaster: Broadcaster<PianoEvent>,
     /// If the piano is not connected, it will be [None].
     inner: SharedMutex<Option<InnerInitialized>>,
     pub recording_storage: RecordingStorage,
@@ -128,6 +134,7 @@ impl Piano {
             sounds,
             shutdown_notify,
             a2dp_source_handler,
+            event_broadcaster: Broadcaster::default(),
             inner: Arc::default(),
             recording_storage: RecordingStorage::new(
                 &config.data_dir.path(files::Data::PianoRecordings),
@@ -421,6 +428,7 @@ impl Piano {
             // To save a little bit of memory, store an image only while piano is connected.
             InnerInitialized::new(devpath, &self.assets.path(Asset::PianoRecordingCoverJPEG)).await,
         );
+        self.event_broadcaster.send(PianoEvent::PianoConnected);
         info!("Piano initialized");
 
         if !self.a2dp_source_handler.has_connected().await {
