@@ -58,6 +58,7 @@ server_port: 80
 # Log level filter. Can be one of: OFF, ERROR, WARN, INFO, DEBUG or TRACE.
 log_level: INFO
 # [REQUIRED] Directory with read-only resources. It has the following structure:
+#   graphiql/ - optional GraphQL IDE to host on "/api/graphql"
 #   site/ - directory with static files to host on "/"
 #   sounds/ - sound effects (see files.rs to review the list of files)
 #   piano-recording-cover.jpg - optional cover image to embed into the piano recordings
