@@ -15,7 +15,10 @@ pub trait BaseDir<'a, T>: Clone + Deserialize<'a> + Validate {
 // ATTENTION: do not forget to update the `Validate`
 // implementation when you add a new variant.
 pub enum Asset {
+    /// A site to host on `/`.
     Site,
+    /// Optional GraphQL IDE to host on `/api/graphql`.
+    GraphiQL,
     Sound(Sound),
     /// Optional cover image to embed into the piano recordings.
     PianoRecordingCoverJPEG,
@@ -51,6 +54,7 @@ impl BaseDir<'_, Asset> for AssetsDir {
                 EntryKind::Directory,
                 Some(EntryRequirement::Exists),
             ),
+            Asset::GraphiQL => ("graphiql".into(), EntryKind::Directory, None),
             Asset::Sound(sound) => (
                 Path::new("sounds").join(sound.to_string() + SOUNDS_EXTENSION),
                 EntryKind::File,
@@ -77,7 +81,7 @@ impl Validate for AssetsDir {
         }
         .validate()?;
 
-        [Asset::Site, Asset::PianoRecordingCoverJPEG]
+        [Asset::Site, Asset::GraphiQL, Asset::PianoRecordingCoverJPEG]
             .into_iter()
             .try_for_each(|asset| self.path(asset).validate())?;
         Sound::iter().try_for_each(|sound| self.path(Asset::Sound(sound)).validate())

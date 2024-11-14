@@ -1,13 +1,13 @@
-use std::process::Stdio;
+use std::{io, process::Stdio};
 
 use actix_files::NamedFile;
 use actix_web::{
     body::BodyStream,
     cookie::{Cookie, SameSite},
-    error::{ErrorInternalServerError, ErrorNotFound},
+    error::{ErrorBadRequest, ErrorInternalServerError, ErrorNotFound},
     get,
     http::header::{self, ContentDisposition, DispositionParam, DispositionType},
-    post, web, HttpRequest, HttpResponse, Responder, Result,
+    post, routes, web, HttpRequest, HttpResponse, Responder, Result,
 };
 use actix_web_httpauth::middleware::HttpAuthentication;
 use async_graphql::Schema;
@@ -20,7 +20,8 @@ use crate::{
     audio::recorder::RECORDING_EXTENSION,
     core::{stdout_reader::StdoutReader, HumanDateParams},
     device::piano::recordings::RecordingStorageError,
-    graphql::{GraphQLPlayground, GraphQLSchema},
+    files::{Asset, BaseDir},
+    graphql::GraphQLSchema,
     rest::auth_validator,
     App,
 };
@@ -43,25 +44,45 @@ struct GraphQLPlaygroundQuery {
     auth_token: Option<String>,
 }
 
+#[routes]
 #[get("/api/graphql")]
+// Host dependencies on the server to access the IDE in offline.
+#[get("/api/graphql/{file}")]
 pub async fn graphql_playground(
+    request: HttpRequest,
     query: web::Query<GraphQLPlaygroundQuery>,
-    playground: web::Data<GraphQLPlayground>,
-) -> HttpResponse {
-    let mut response = HttpResponse::Ok()
-        .content_type("text/html; charset=UTF-8")
-        .take();
+    app: web::Data<App>,
+) -> Result<HttpResponse> {
+    // Can't use `actix_files` here, because we need to add the authorization cookie.
+    let dir = &app.config.assets_dir.path(Asset::GraphiQL);
+    let file = request
+        .path()
+        .trim_start_matches("/api/graphql")
+        .trim_start_matches('/');
+    let path = dir.join(if file.is_empty() { "index.html" } else { file });
+    let file = NamedFile::open_async(&path).await.map_err(|err| {
+        if err.kind() == io::ErrorKind::NotFound {
+            ErrorNotFound(format!("file {file} not found"))
+        } else {
+            error!("Failed to open file {}: {err}", path.to_string_lossy());
+            ErrorInternalServerError(format!("failed to open file {file}"))
+        }
+    })?;
+
+    let mut response = file.into_response(&request);
     if let Some(auth_token) = query.auth_token.as_deref() {
         // Cookie is required for subscription,
         // because WebSocket can't accept the authorization header.
-        response.cookie(
-            Cookie::build(header::AUTHORIZATION.as_str(), auth_token)
-                .path("/api/graphql")
-                .same_site(SameSite::Strict)
-                .finish(),
-        );
-    };
-    response.body(playground.to_string())
+        response
+            .add_cookie(
+                &Cookie::build(header::AUTHORIZATION.as_str(), auth_token)
+                    .path("/api/graphql")
+                    .same_site(SameSite::Strict)
+                    .finish(),
+            )
+            .map_err(ErrorBadRequest)?;
+    }
+    Ok(response)
 }
 
 #[post("/api/graphql", wrap = "HttpAuthentication::with_fn(auth_validator)")]

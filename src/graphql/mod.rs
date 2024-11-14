@@ -4,7 +4,7 @@ mod subscription;
 
 use std::{fmt::Display, ops::Deref};
 
-use async_graphql::{http::GraphiQLSource, scalar, Error, ErrorExtensions, Schema};
+use async_graphql::{scalar, Error, ErrorExtensions, Schema};
 use serde::{Deserialize, Serialize};
 
 use crate::App;
@@ -13,7 +13,6 @@ use query::QueryRoot;
 use subscription::SubscriptionRoot;
 
 pub type GraphQLSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
-pub type GraphQLPlayground = String;
 
 #[derive(Deserialize, Serialize)]
 struct Scalar<T>(T);
@@ -35,14 +34,6 @@ pub fn build_schema(app: App) -> GraphQLSchema {
         SubscriptionRoot(app),
     )
     .finish()
-}
-
-pub fn build_playground() -> GraphQLPlayground {
-    GraphiQLSource::build()
-        .endpoint("/api/graphql")
-        .subscription_endpoint("/api/graphql")
-        .title("Homie GraphQL")
-        .finish()
 }
 
 pub trait GraphQLError: AsRef<str> + Display + Sized {

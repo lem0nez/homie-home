@@ -47,7 +47,6 @@ actix-web = { version = "4.7.0", features = [
 actix-web-httpauth = "0.8.1"
 async-graphql = { version = "7.0.7", features = [
     "chrono",
-    "graphiql",
 ], default-features = false }
 async-graphql-actix-web = "7.0.7"
 

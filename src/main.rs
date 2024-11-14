@@ -1,6 +1,6 @@
 use std::io;
 
-use actix_web::{web, HttpServer};
+use actix_web::{middleware, web, HttpServer};
 use anyhow::Context;
 use bluez_async::BluetoothSession;
 use log::{info, warn};
@@ -51,7 +51,7 @@ fn spawn_http_server(app: App) -> io::Result<()> {
             // Data MUST be wrapped with [web::Data].
             .app_data(web::Data::new(app.clone()))
             .app_data(web::Data::new(graphql::build_schema(app.clone())))
-            .app_data(web::Data::new(graphql::build_playground()))
+            .wrap(middleware::NormalizePath::trim())
             .configure(|service_config| rest::configure_service(service_config, &app))
     })
     .bind((address.clone(), port))?
