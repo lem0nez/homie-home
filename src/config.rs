@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use anyhow::anyhow;
 use figment::{
     providers::{Env, Format, Yaml},
     Figment,
@@ -144,7 +145,10 @@ impl Config {
             .merge(Yaml::file(YAML_FILE_LOCATION))
             .merge(Env::prefixed(ENV_PREFIX))
             .extract()?;
-        config.validate()?;
+        config
+            .validate()
+            // Try pretty-printed YAML format instead of compacted JSON.
+            .map_err(|err| anyhow!(serde_yaml::to_string(&err).unwrap_or(err.to_string())))?;
         Ok(config)
     }
 }
