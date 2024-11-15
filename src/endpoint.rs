@@ -55,9 +55,10 @@ pub async fn graphql_playground(
 ) -> Result<HttpResponse> {
     // Can't use `actix_files` here, because we need to add the authorization cookie.
     let dir = &app.config.assets_dir.path(Asset::GraphiQL);
-    let file = request
-        .path()
-        .trim_start_matches("/api/graphql")
+    let path = request.path();
+    let file = path
+        .strip_prefix("/api/graphql")
+        .unwrap_or(path)
         .trim_start_matches('/');
     let path = dir.join(if file.is_empty() { "index.html" } else { file });
     let file = NamedFile::open_async(&path).await.map_err(|err| {
