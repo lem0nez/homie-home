@@ -21,11 +21,11 @@ use crate::{
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum RecordingStorageError {
-    #[error("recording does not exist")]
+    #[error("Recording does not exist")]
     RecordingNotExists,
-    #[error("unable to read a recording: {0}")]
+    #[error("Unable to read a recording: {0}")]
     FailedToRead(ReadRecordingError),
-    #[error("file system error ({0})")]
+    #[error("File system error ({0})")]
     FileSystemError(io::Error),
 }
 
@@ -200,11 +200,11 @@ impl RecordingStorage {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReadRecordingError {
-    #[error("unable to read a FLAC tag ({0})")]
+    #[error("Unable to read a FLAC tag ({0})")]
     ReadTagError(metaflac::Error),
-    #[error("no stream info block in the file")]
+    #[error("No stream info block in the file")]
     NoStreamInfo,
-    #[error("invalid file name: must be '<TIMESTAMP_MILLIS>{RECORDING_EXTENSION}'")]
+    #[error("Invalid file name: must be '<TIMESTAMP_MILLIS>{RECORDING_EXTENSION}'")]
     InvalidFileName,
 }
 

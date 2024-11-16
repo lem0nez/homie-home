@@ -25,9 +25,9 @@ pub struct Preferences {
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum PreferencesUpdateError {
-    #[error("failed to serialize preferences into YAML: {0}")]
+    #[error("Failed to serialize preferences into YAML: {0}")]
     SerializationFailed(serde_yaml::Error),
-    #[error("failed to save preferences to file: {0}")]
+    #[error("Failed to save preferences to file: {0}")]
     FailedToSave(io::Error),
 }
 

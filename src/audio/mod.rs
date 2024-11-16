@@ -20,11 +20,11 @@ type BufferedDecoder<T> = source::Buffered<Decoder<T>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AudioSourceError {
-    #[error("unable to open the file: {0}")]
+    #[error("Unable to open the file: {0}")]
     OpenFile(io::Error),
-    #[error("unable to read the whole file: {0}")]
+    #[error("Unable to read the whole file: {0}")]
     ReadFile(io::Error),
-    #[error("failed to build a decoder: {0}")]
+    #[error("Failed to build a decoder: {0}")]
     BuildDecoder(DecoderError),
 }
 
@@ -100,7 +100,6 @@ impl AudioSource {
 }
 
 #[derive(Debug, strum::Display)]
-#[strum(serialize_all = "lowercase")]
 pub enum AudioObject {
     Player,
     Recorder,

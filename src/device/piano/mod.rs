@@ -49,7 +49,7 @@ pub struct InitParams {
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum AudioError<E> {
-    #[error("piano is not connected")]
+    #[error("Piano is not connected")]
     PianoNotConnected,
     #[error("{0} is not initialized")]
     NotInitialized(AudioObject),
@@ -68,15 +68,15 @@ pub struct StopRecorderParams {
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum RecordControlError {
-    #[error("already recording")]
+    #[error("Already recording")]
     AlreadyRecording,
-    #[error("not recording")]
+    #[error("Not recording")]
     NotRecording,
-    #[error("failed to prepare a new file: {0}")]
+    #[error("Failed to prepare a new file: {0}")]
     PrepareFileError(RecordingStorageError),
-    #[error("failed to preserve the new recording: {0}")]
+    #[error("Failed to preserve the new recording: {0}")]
     PreserveRecordingError(RecordingStorageError),
-    #[error("unable to check recorder status: {0}")]
+    #[error("Unable to check recorder status: {0}")]
     CheckStatusFailed(RecordingStorageError),
     #[error(transparent)]
     Error(AudioError<RecordError>),
@@ -87,9 +87,9 @@ impl GraphQLError for RecordControlError {}
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum PlayRecordingError {
-    #[error("unable to get a recording: {0}")]
+    #[error("Unable to get a recording: {0}")]
     GetRecording(RecordingStorageError),
-    #[error("unable to make an audio source: {0}")]
+    #[error("Unable to make an audio source: {0}")]
     MakeAudioSource(AudioSourceError),
     #[error(transparent)]
     Error(AudioError<PlayerError>),

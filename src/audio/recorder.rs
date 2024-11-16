@@ -45,29 +45,29 @@ pub struct RecordParams {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RecordError {
-    #[error("already recording")]
+    #[error("Already recording")]
     AlreadyRecording,
-    #[error("recorder has not been started")]
+    #[error("Recorder has not been started")]
     NotRecording,
-    #[error("unable to create a new output file ({0})")]
+    #[error("Unable to create a new output file ({0})")]
     CreateFileError(io::Error),
-    #[error("failed to prepare the FLAC encoder: {0}")]
+    #[error("Failed to prepare the FLAC encoder: {0}")]
     EncoderInitError(String),
-    #[error("unable to build an input stream ({0})")]
+    #[error("Unable to build an input stream ({0})")]
     BuildStreamError(BuildStreamError),
-    #[error("unable to start capturing ({0})")]
+    #[error("Unable to start capturing ({0})")]
     CaptureFailed(PlayStreamError),
-    #[error("an error occurred trying to process the samples ({0:?})")]
+    #[error("An error occurred trying to process the samples ({0:?})")]
     ProcessSamplesFailed(FlacEncoderState),
-    #[error("error occurred in the input stream ({0})")]
+    #[error("Error occurred in the input stream ({0})")]
     StreamError(StreamError),
-    #[error("input stream closed")]
+    #[error("Input stream closed")]
     StreamClosed,
-    #[error("unable to finish the encoding ({0:?})")]
+    #[error("Unable to finish the encoding ({0:?})")]
     FinishEncodingFailed(FlacEncoderState),
-    #[error("failed to embed metadata ({0})")]
+    #[error("Failed to embed metadata ({0})")]
     EmbedMetadataError(metaflac::Error),
-    #[error("processing thread is closed")]
+    #[error("Processing thread is closed")]
     ProcessingTerminated,
     #[error("{}", _0.iter().map(|err| err.to_string()).collect::<Vec<_>>().join("; "))]
     MultipleErrors(Vec<Self>),

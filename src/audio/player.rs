@@ -11,19 +11,19 @@ type PlayerResult<T> = Result<T, PlayerError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlayerError {
-    #[error("failed to create an output stream: {0}")]
+    #[error("Failed to create an output stream: {0}")]
     CreateOutputStreamError(StreamError),
-    #[error("failed to create a sink: {0}")]
+    #[error("Failed to create a sink: {0}")]
     CreateSinkError(PlayError),
-    #[error("playback stream closed")]
+    #[error("Playback stream closed")]
     StreamClosed,
 
     // Errors related to the seeking.
-    #[error("failed to seek: {0}")]
+    #[error("Failed to seek: {0}")]
     SeekFailed(SeekError),
-    #[error("total duration of the audio source is unknown")]
+    #[error("Total duration of the audio source is unknown")]
     UnknownTotalDuration,
-    #[error("percents number must be in range [0.00, 1.00]")]
+    #[error("Percents number must be in range [0.00, 1.00]")]
     InvalidPercents,
 }
 

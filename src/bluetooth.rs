@@ -45,7 +45,7 @@ pub enum DeviceAccessError<D: DeviceDescription> {
         D::name()
     )]
     NotFound(PhantomData<D>),
-    #[error("discovering {}", D::name())]
+    #[error("Discovering {}", D::name())]
     Discovering(PhantomData<D>),
     #[error("{} is in connecting state", D::name())]
     Connecting(PhantomData<D>),
