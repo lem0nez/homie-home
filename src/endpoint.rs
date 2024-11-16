@@ -54,34 +54,34 @@ pub async fn graphql_playground(
     app: web::Data<App>,
 ) -> Result<HttpResponse> {
     // Can't use `actix_files` here, because we need to add the authorization cookie.
-    let dir = &app.config.assets_dir.path(Asset::GraphiQL);
-    let path = request.path();
-    let file = path
+    let request_path = request.path();
+    let file = request_path
         .strip_prefix("/api/graphql")
-        .unwrap_or(path)
+        .unwrap_or(request_path)
         .trim_start_matches('/');
-    let path = dir.join(if file.is_empty() { "index.html" } else { file });
-    let file = NamedFile::open_async(&path).await.map_err(|err| {
-        if err.kind() == io::ErrorKind::NotFound {
-            ErrorNotFound(format!("file {file} not found"))
-        } else {
-            error!("Failed to open file {}: {err}", path.to_string_lossy());
-            ErrorInternalServerError(format!("failed to open file {file}"))
-        }
-    })?;
+    let file = if file.is_empty() { "index.html" } else { file };
+    let fs_path = app.config.assets_dir.path(Asset::GraphiQL).join(file);
 
-    let mut response = file.into_response(&request);
+    let mut response = NamedFile::open_async(&fs_path)
+        .await
+        .map_err(|err| {
+            if err.kind() == io::ErrorKind::NotFound {
+                ErrorNotFound(format!("file {file} not found"))
+            } else {
+                error!("Failed to open file {}: {err}", fs_path.to_string_lossy());
+                ErrorInternalServerError(format!("failed to open file {file}"))
+            }
+        })?
+        .into_response(&request);
+
     if let Some(auth_token) = query.auth_token.as_deref() {
         // Cookie is required for subscription,
         // because WebSocket can't accept the authorization header.
-        response
-            .add_cookie(
-                &Cookie::build(header::AUTHORIZATION.as_str(), auth_token)
-                    .path("/api/graphql")
-                    .same_site(SameSite::Strict)
-                    .finish(),
-            )
-            .map_err(ErrorBadRequest)?;
+        let cookie = Cookie::build(header::AUTHORIZATION.as_str(), auth_token)
+            .path("/api/graphql")
+            .same_site(SameSite::Strict)
+            .finish();
+        response.add_cookie(&cookie).map_err(ErrorBadRequest)?;
     }
     Ok(response)
 }
