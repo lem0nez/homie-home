@@ -184,6 +184,7 @@ impl Piano {
     }
 
     pub async fn status(&self) -> Result<PianoStatus, GetStatusError> {
+        let connected = self.inner.lock().await.is_some();
         let is_playing = match self
             .call_player(|player| async { player.is_playing().await }.boxed())
             .await
@@ -195,7 +196,7 @@ impl Piano {
             },
         };
         Ok(PianoStatus {
-            connected: self.inner.lock().await.is_some(),
+            connected,
             has_player: self.has_initialized(AudioObject::Player).await,
             has_recorder: self.has_initialized(AudioObject::Recorder).await,
             is_recording: self
