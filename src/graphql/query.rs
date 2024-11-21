@@ -70,11 +70,11 @@ impl PianoQuery<'_> {
     }
 
     /// If there is already playing recording, it will be stopped.
-    async fn play_recording(&self, id: Scalar<i64>) -> Result<bool> {
+    async fn play_recording(&self, id: Scalar<i64>) -> Result<i64> {
         self.0
             .play_recording(*id)
             .await
-            .map(|_| true)
+            .map(|_| *id)
             .map_err(GraphQLError::extend)
     }
 
