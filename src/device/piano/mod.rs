@@ -2,6 +2,7 @@ pub mod recordings;
 
 use std::{ffi::OsString, fmt::Display, path::Path, sync::Arc, time::Duration};
 
+use async_graphql::SimpleObject;
 use async_stream::stream;
 use cpal::traits::{DeviceTrait, HostTrait};
 use futures::{executor, future::BoxFuture, FutureExt, Stream};
@@ -97,6 +98,31 @@ pub enum PlayRecordingError {
 
 impl GraphQLError for PlayRecordingError {}
 
+#[derive(Debug, strum::AsRefStr, thiserror::Error)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+pub enum GetStatusError {
+    #[error(transparent)]
+    RecordingStorage(RecordingStorageError),
+    #[error(transparent)]
+    Player(PlayerError),
+}
+
+impl GraphQLError for GetStatusError {}
+
+#[derive(SimpleObject)]
+pub struct PianoStatus {
+    /// Is piano plugged in.
+    connected: bool,
+    /// Whether player is available.
+    has_player: bool,
+    /// Whether recorder is available.
+    has_recorder: bool,
+    /// Is audio recording in process.
+    is_recording: bool,
+    /// Is some recording playing now.
+    is_playing: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
 pub enum PianoEvent {
     PianoConnected,
@@ -157,8 +183,28 @@ impl Piano {
         }
     }
 
-    pub async fn is_connected(&self) -> bool {
-        self.inner.lock().await.is_some()
+    pub async fn status(&self) -> Result<PianoStatus, GetStatusError> {
+        let is_playing = match self
+            .call_player(|player| async { player.is_playing().await }.boxed())
+            .await
+        {
+            Ok(is_playing) => is_playing,
+            Err(err) => match err {
+                AudioError::PianoNotConnected | AudioError::NotInitialized(_) => false,
+                AudioError::Error(err) => return Err(GetStatusError::Player(err)),
+            },
+        };
+        Ok(PianoStatus {
+            connected: self.inner.lock().await.is_some(),
+            has_player: self.has_initialized(AudioObject::Player).await,
+            has_recorder: self.has_initialized(AudioObject::Recorder).await,
+            is_recording: self
+                .recording_storage
+                .is_recording()
+                .await
+                .map_err(GetStatusError::RecordingStorage)?,
+            is_playing,
+        })
     }
 
     /// Start recording to the new temporary file.
@@ -313,11 +359,6 @@ impl Piano {
                 }
             }
         }
-    }
-
-    pub async fn is_playing(&self) -> AudioResult<bool, PlayerError> {
-        self.call_player(|player| async { player.is_playing().await }.boxed())
-            .await
     }
 
     pub async fn resume_player(&self) -> AudioResult<bool, PlayerError> {
@@ -583,7 +624,7 @@ impl Piano {
         }
     }
 
-    pub async fn has_initialized(&self, audio_object: AudioObject) -> bool {
+    async fn has_initialized(&self, audio_object: AudioObject) -> bool {
         self.inner
             .lock()
             .await

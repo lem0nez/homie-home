@@ -45,7 +45,7 @@ impl RecordingStorage {
         }
     }
 
-    pub async fn is_recording(&self) -> Result<bool, RecordingStorageError> {
+    pub(super) async fn is_recording(&self) -> Result<bool, RecordingStorageError> {
         fs::try_exists(&self.unsaved_path())
             .await
             .map_err(RecordingStorageError::FileSystemError)
