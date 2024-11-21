@@ -2,7 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use async_graphql::{Object, Result};
 
-use super::{GraphQLError, Scalar};
+use super::GraphQLError;
 use crate::{
     core::SortOrder,
     device::{
@@ -67,33 +67,5 @@ impl PianoQuery<'_> {
             .list(order)
             .await
             .map_err(GraphQLError::extend)
-    }
-
-    /// If there is already playing recording, it will be stopped.
-    async fn play_recording(&self, id: Scalar<i64>) -> Result<i64> {
-        self.0
-            .play_recording(*id)
-            .await
-            .map(|_| *id)
-            .map_err(GraphQLError::extend)
-    }
-
-    /// Takes a number in range `[0.00, 1.00]`, where `0.00` is the beginning of an audio source
-    /// and `1.00` is the end. Returns `false` if there is no playing (or paused) audio.
-    async fn seek_player(&self, percents: f64) -> Result<bool> {
-        self.0
-            .seek_player(percents)
-            .await
-            .map_err(GraphQLError::extend)
-    }
-
-    /// Returns `true` if there is was paused recording.
-    async fn resume_player(&self) -> Result<bool> {
-        self.0.resume_player().await.map_err(GraphQLError::extend)
-    }
-
-    /// Returns `true` if there is was playing recording.
-    async fn pause_player(&self) -> Result<bool> {
-        self.0.pause_player().await.map_err(GraphQLError::extend)
     }
 }
