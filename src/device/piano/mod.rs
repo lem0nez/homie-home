@@ -228,8 +228,8 @@ impl Piano {
         let prefs_lock = self.prefs.read().await;
         let params = RecordParams {
             out_flac: out_path.clone(),
-            amplitude_scale: prefs_lock.piano_record_amplitude_scale,
-            artist: prefs_lock.piano_recordings_artist.clone(),
+            amplitude_scale: prefs_lock.piano.record_amplitude_scale,
+            artist: prefs_lock.piano.recordings_artist.clone(),
             front_cover_jpeg,
         };
         drop(prefs_lock);
@@ -392,6 +392,7 @@ impl Piano {
         let source = self.sounds.get(sound);
         let props = PlaybackProperties {
             secondary: true,
+            volume: self.prefs.read().await.piano.sounds_volume,
             ..Default::default()
         };
         let result = self
