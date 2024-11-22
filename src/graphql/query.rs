@@ -1,14 +1,11 @@
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
 
 use async_graphql::{Object, Result};
 
 use super::GraphQLError;
 use crate::{
     core::SortOrder,
-    device::{
-        mi_temp_monitor,
-        piano::{recordings::Recording as PianoRecording, Piano, PianoStatus},
-    },
+    device::piano::{recordings::Recording as PianoRecording, Piano},
     prefs::Preferences,
     App,
 };
@@ -24,21 +21,6 @@ impl QueryRoot {
     async fn preferences(&self) -> Preferences {
         self.prefs.read().await.clone()
     }
-
-    async fn lounge_temp_monitor_data(&self) -> Result<Option<mi_temp_monitor::Data>> {
-        self.bluetooth
-            .ensure_connected_and_healthy(Arc::clone(&self.lounge_temp_monitor))
-            .await
-            .map_err(GraphQLError::extend)?;
-        Ok(self
-            .lounge_temp_monitor
-            .read()
-            .await
-            .get_connected()
-            .map_err(GraphQLError::extend)?
-            .last_data()
-            .await)
-    }
 }
 
 impl Deref for QueryRoot {
@@ -53,10 +35,6 @@ struct PianoQuery<'a>(&'a Piano);
 
 #[Object]
 impl PianoQuery<'_> {
-    async fn status(&self) -> Result<PianoStatus> {
-        self.0.status().await.map_err(GraphQLError::extend)
-    }
-
     /// Recordings ordered by the creation time.
     async fn recordings(
         &self,

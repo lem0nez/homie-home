@@ -5,7 +5,7 @@ use std::{ffi::OsString, fmt::Display, path::Path, sync::Arc, time::Duration};
 use async_graphql::SimpleObject;
 use async_stream::stream;
 use cpal::traits::{DeviceTrait, HostTrait};
-use futures::{executor, future::BoxFuture, FutureExt, Stream};
+use futures::{executor, future::BoxFuture, FutureExt, Stream, StreamExt};
 use log::{error, info, warn};
 use tokio::{fs, select};
 
@@ -123,6 +123,7 @@ pub struct PianoStatus {
     is_playing: bool,
 }
 
+// ATTENTION: do not forget to check the `status_update` method when you add a new event.
 #[derive(Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
 pub enum PianoEvent {
     PianoConnected,
@@ -183,7 +184,7 @@ impl Piano {
         }
     }
 
-    pub async fn status(&self) -> Result<PianoStatus, GetStatusError> {
+    async fn status(&self) -> Result<PianoStatus, GetStatusError> {
         let connected = self.inner.lock().await.is_some();
         let is_playing = match self
             .call_player(|player| async { player.is_playing().await }.boxed())
@@ -206,6 +207,24 @@ impl Piano {
                 .map_err(GetStatusError::RecordingStorage)?,
             is_playing,
         })
+    }
+
+    /// Continuously receive the current piano status.
+    pub async fn status_update(self) -> impl Stream<Item = Result<PianoStatus, GetStatusError>> {
+        let mut event_stream = self
+            .event_broadcaster
+            .recv_continuously(self.shutdown_notify.clone())
+            .await
+            .boxed();
+        stream! {
+            yield self.status().await;
+            while let Some(event) = event_stream.next().await {
+                match event {
+                    PianoEvent::NewRecordingSaved | PianoEvent::OldRecordingsRemoved => {},
+                    _ => yield self.status().await,
+                }
+            }
+        }
     }
 
     /// Start recording to the new temporary file.

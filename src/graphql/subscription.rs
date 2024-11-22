@@ -2,13 +2,16 @@ use std::{ops::Deref, sync::Arc, time::Duration};
 
 use async_graphql::{Result, Subscription};
 use async_stream::stream;
-use futures::Stream;
+use futures::{Stream, TryStreamExt};
 use tokio::select;
 
 use super::GraphQLError;
 use crate::{
     audio::player::PlaybackPosition,
-    device::{mi_temp_monitor, piano::PianoEvent},
+    device::{
+        mi_temp_monitor,
+        piano::{PianoEvent, PianoStatus},
+    },
     App, GlobalEvent,
 };
 
@@ -27,6 +30,14 @@ impl SubscriptionRoot {
             .event_broadcaster
             .recv_continuously(self.shutdown_notify.clone())
             .await
+    }
+
+    async fn piano_status(&self) -> impl Stream<Item = Result<PianoStatus>> {
+        self.piano
+            .clone()
+            .status_update()
+            .await
+            .map_err(GraphQLError::extend)
     }
 
     /// Respond every `checkIntervalMs` about the current playback position.
