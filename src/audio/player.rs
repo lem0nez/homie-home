@@ -5,11 +5,15 @@ use log::{debug, error, info};
 use rodio::{source::SeekError, OutputStream, OutputStreamHandle, PlayError, Sink, StreamError};
 use tokio::{sync::mpsc, task};
 
-use crate::audio::{AudioSource, AudioSourceProperties};
+use crate::{
+    audio::{AudioSource, AudioSourceProperties},
+    graphql::GraphQLError,
+};
 
 type PlayerResult<T> = Result<T, PlayerError>;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, strum::AsRefStr, thiserror::Error)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum PlayerError {
     #[error("Failed to create an output stream: {0}")]
     CreateOutputStreamError(StreamError),
@@ -26,6 +30,8 @@ pub enum PlayerError {
     #[error("Percents number must be in range [0.00, 1.00]")]
     InvalidPercents,
 }
+
+impl GraphQLError for PlayerError {}
 
 pub struct PlaybackProperties {
     /// _Secondary_ sink doesn't affect the primary one and other secondary sinks,

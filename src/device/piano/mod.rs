@@ -98,17 +98,6 @@ pub enum PlayRecordingError {
 
 impl GraphQLError for PlayRecordingError {}
 
-#[derive(Debug, strum::AsRefStr, thiserror::Error)]
-#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
-pub enum GetStatusError {
-    #[error(transparent)]
-    RecordingStorage(RecordingStorageError),
-    #[error(transparent)]
-    Player(PlayerError),
-}
-
-impl GraphQLError for GetStatusError {}
-
 #[derive(SimpleObject)]
 pub struct PianoStatus {
     /// Is piano plugged in.
@@ -119,8 +108,14 @@ pub struct PianoStatus {
     has_recorder: bool,
     /// Is audio recording in process.
     is_recording: bool,
+}
+
+#[derive(Default, SimpleObject)]
+pub struct PianoPlaybackStatus {
     /// Is some recording playing now.
     is_playing: bool,
+    /// [None] if there is no playing (or paused) recording.
+    position: Option<PlaybackPosition>,
 }
 
 // ATTENTION: do not forget to check the `status_update` method when you add a new event.
@@ -134,7 +129,7 @@ pub enum PianoEvent {
     /// Indicates that player and recorder became unavailable.
     AudioReleased,
 
-    /// Triggered on play or resume.
+    // Triggered on **manual** play or resume.
     PlayerPlay,
     PlayerPause,
 
@@ -184,33 +179,20 @@ impl Piano {
         }
     }
 
-    async fn status(&self) -> Result<PianoStatus, GetStatusError> {
+    async fn status(&self) -> Result<PianoStatus, RecordingStorageError> {
         let connected = self.inner.lock().await.is_some();
-        let is_playing = match self
-            .call_player(|player| async { player.is_playing().await }.boxed())
-            .await
-        {
-            Ok(is_playing) => is_playing,
-            Err(err) => match err {
-                AudioError::PianoNotConnected | AudioError::NotInitialized(_) => false,
-                AudioError::Error(err) => return Err(GetStatusError::Player(err)),
-            },
-        };
         Ok(PianoStatus {
             connected,
             has_player: self.has_initialized(AudioObject::Player).await,
             has_recorder: self.has_initialized(AudioObject::Recorder).await,
-            is_recording: self
-                .recording_storage
-                .is_recording()
-                .await
-                .map_err(GetStatusError::RecordingStorage)?,
-            is_playing,
+            is_recording: self.recording_storage.is_recording().await?,
         })
     }
 
     /// Continuously receive the current piano status.
-    pub async fn status_update(self) -> impl Stream<Item = Result<PianoStatus, GetStatusError>> {
+    pub async fn status_update(
+        self,
+    ) -> impl Stream<Item = Result<PianoStatus, RecordingStorageError>> {
         let mut event_stream = self
             .event_broadcaster
             .recv_continuously(self.shutdown_notify.clone())
@@ -220,7 +202,10 @@ impl Piano {
             yield self.status().await;
             while let Some(event) = event_stream.next().await {
                 match event {
-                    PianoEvent::NewRecordingSaved | PianoEvent::OldRecordingsRemoved => {},
+                    // These events don't affect the piano status.
+                    PianoEvent::OldRecordingsRemoved
+                    | PianoEvent::PlayerPlay
+                    | PianoEvent::PlayerPause => {}
                     _ => yield self.status().await,
                 }
             }
@@ -355,24 +340,33 @@ impl Piano {
             .await
     }
 
-    /// `check_interval` is an interval between responses. Stream finishes on the playback end.
+    /// `check_interval` is an interval between responses.
     ///
     /// Passing self by value to avoid capturing self reference inside the stream,
     /// that blocks capturing self by mutable reference while stream is running.
-    pub async fn playback_position(
+    pub async fn playback_status_update(
         self,
         check_interval: Duration,
-    ) -> impl Stream<Item = PlaybackPosition> {
+    ) -> impl Stream<Item = Result<PianoPlaybackStatus, PlayerError>> {
         stream! {
             loop {
-                if let Ok(Some(pos)) = self
-                    .call_player(|player| async { player.position().await }.boxed())
-                    .await
-                {
-                    yield pos;
-                } else {
-                    break;
-                }
+                let result = self
+                    .call_player(|player| {
+                        async { Ok((player.is_playing().await?, player.position().await?)) }.boxed()
+                    })
+                    .await;
+                yield match result {
+                    Ok((is_playing, position)) => Ok(PianoPlaybackStatus {
+                        is_playing,
+                        position,
+                    }),
+                    Err(e) => match e {
+                        AudioError::PianoNotConnected | AudioError::NotInitialized(_) => {
+                            Ok(PianoPlaybackStatus::default())
+                        }
+                        AudioError::Error(e) => Err(e),
+                    },
+                };
                 select! {
                     _ = tokio::time::sleep(check_interval) => {}
                     _ = self.shutdown_notify.notified() => break,

@@ -7,10 +7,9 @@ use tokio::select;
 
 use super::GraphQLError;
 use crate::{
-    audio::player::PlaybackPosition,
     device::{
         mi_temp_monitor,
-        piano::{PianoEvent, PianoStatus},
+        piano::{PianoEvent, PianoPlaybackStatus, PianoStatus},
     },
     App, GlobalEvent,
 };
@@ -40,18 +39,17 @@ impl SubscriptionRoot {
             .map_err(GraphQLError::extend)
     }
 
-    /// Respond every `checkIntervalMs` about the current playback position.
-    /// Stream will be closed on playback end or
-    /// even will not be started if there is no playing (or paused) audio.
-    async fn piano_playback_position(
+    /// Respond every `checkIntervalMs` about the current playback status.
+    async fn piano_playback_status(
         &self,
         // 32-bit will be enough.
         #[graphql(default = 500)] check_interval_ms: u32,
-    ) -> impl Stream<Item = PlaybackPosition> {
+    ) -> impl Stream<Item = Result<PianoPlaybackStatus>> {
         self.piano
             .clone()
-            .playback_position(Duration::from_millis(check_interval_ms as u64))
+            .playback_status_update(Duration::from_millis(check_interval_ms as u64))
             .await
+            .map_err(GraphQLError::extend)
     }
 
     async fn lounge_temp_monitor_data(
