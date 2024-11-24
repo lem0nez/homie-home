@@ -104,6 +104,13 @@ pub async fn graphql_subscription(
     GraphQLSubscription::new(Schema::clone(&*schema)).start(&request, payload)
 }
 
+#[get("/api/schema", wrap = "HttpAuthentication::with_fn(auth_validator)")]
+pub async fn graphql_schema(schema: web::Data<GraphQLSchema>) -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type(mime::TEXT_PLAIN)
+        .body(schema.sdl())
+}
+
 #[post("/api/backup", wrap = "HttpAuthentication::with_fn(auth_validator)")]
 pub async fn backup() -> Result<HttpResponse> {
     let mut child = Command::new("rpi-backup")

@@ -27,6 +27,7 @@ pub fn configure_service(service_config: &mut ServiceConfig, app: &App) {
         .service(endpoint::graphql_subscription)
         .service(endpoint::graphql)
         .service(endpoint::graphql_playground)
+        .service(endpoint::graphql_schema)
         .service(endpoint::backup)
         .service(endpoint::poweroff)
         .service(endpoint::piano_recording)
