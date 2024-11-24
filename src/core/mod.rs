@@ -8,6 +8,7 @@ use std::{
         atomic::{self, AtomicBool},
         Arc,
     },
+    time::Duration,
 };
 
 use async_stream::stream;
@@ -164,6 +165,12 @@ where
     } else {
         format!("{} {month} {} at {time}", date.day, date.year)
     }
+}
+
+/// Returns duration in format `mins:secs`.
+pub fn human_duration(duration: Duration) -> String {
+    let secs = duration.as_secs();
+    format!("{:0>2}:{:0>2}", secs / 60, secs % 60)
 }
 
 pub fn round_f32(number: f32, precision: i32) -> f32 {

@@ -7,6 +7,7 @@ use tokio::{sync::mpsc, task};
 
 use crate::{
     audio::{AudioSource, AudioSourceProperties},
+    core::human_duration,
     graphql::GraphQLError,
 };
 
@@ -68,8 +69,16 @@ impl PlaybackPosition {
         self.current.as_millis() as u64
     }
 
+    async fn current_human(&self) -> String {
+        human_duration(self.current)
+    }
+
     async fn total_ms(&self) -> Option<u64> {
         self.total.map(|total| total.as_millis() as u64)
+    }
+
+    async fn total_human(&self) -> Option<String> {
+        self.total.map(human_duration)
     }
 
     /// Returns played part percents (from 0.00 to 1.00).

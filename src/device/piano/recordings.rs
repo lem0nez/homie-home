@@ -14,7 +14,7 @@ use tokio::{fs, io};
 use super::PianoEvent;
 use crate::{
     audio::{recorder::RECORDING_EXTENSION, AudioSource, AudioSourceError},
-    core::{human_date_ago, Broadcaster, HumanDateParams, SortOrder},
+    core::{human_date_ago, human_duration, Broadcaster, HumanDateParams, SortOrder},
     graphql::GraphQLError,
 };
 
@@ -275,8 +275,7 @@ impl Recording {
     }
 
     async fn human_duration(&self) -> String {
-        let secs = self.duration.as_secs();
-        format!("{:0>2}:{:0>2}", secs / 60, secs % 60)
+        human_duration(self.duration)
     }
 
     async fn duration_ms(&self) -> u64 {
