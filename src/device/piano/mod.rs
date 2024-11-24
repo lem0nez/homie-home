@@ -12,7 +12,7 @@ use tokio::{fs, select};
 use crate::{
     audio::{
         self,
-        player::{PlaybackPosition, PlaybackProperties, Player, PlayerError},
+        player::{PlaybackPosition, PlaybackProperties, Player, PlayerError, SeekTo},
         recorder::{RecordError, RecordParams, Recorder},
         AudioObject, AudioSourceError, AudioSourceProperties, SoundLibrary,
     },
@@ -333,10 +333,9 @@ impl Piano {
         Ok(())
     }
 
-    /// Seek to the given position represented in percents.
     /// Returns `false` if there is no playing (or paused) audio.
-    pub async fn seek_player(&self, percents: f64) -> AudioResult<bool, PlayerError> {
-        self.call_player(|player| async move { player.seek_to_percents(percents).await }.boxed())
+    pub async fn seek_player(&self, to: SeekTo) -> AudioResult<bool, PlayerError> {
+        self.call_player(|player| async move { player.seek(to).await }.boxed())
             .await
     }
 

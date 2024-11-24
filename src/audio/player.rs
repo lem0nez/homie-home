@@ -87,6 +87,13 @@ impl PlaybackPosition {
     }
 }
 
+pub enum SeekTo {
+    /// Seek to `total_duration * percents`. Number is in range `[0.00, 1.00]`.
+    Percents(f64),
+    /// Seek to the given position.
+    Position(Duration),
+}
+
 #[derive(strum::Display)]
 enum Command {
     Play(AudioSource, PlaybackProperties),
@@ -96,9 +103,7 @@ enum Command {
     Resume,
     Pause,
     GetPosition,
-    SeekToPosition(Duration),
-    /// Seek to `total_duration * percents`.
-    SeekToPercents(f64),
+    Seek(SeekTo),
 }
 
 enum Response {
@@ -209,18 +214,13 @@ impl Player {
     }
 
     /// Returns `false` if the primary sink is empty.
-    pub async fn seek_to_position(&mut self, pos: Duration) -> PlayerResult<bool> {
-        self.perform_and_get_bool(Command::SeekToPosition(pos))
-            .await
-    }
-
-    /// Takes a number in range `[0.00, 1.00]`. Returns `false` if the primary sink is empty.
-    pub async fn seek_to_percents(&mut self, percents: f64) -> PlayerResult<bool> {
-        if !(0.00..1.00).contains(&percents) {
-            return Err(PlayerError::InvalidPercents);
+    pub async fn seek(&mut self, to: SeekTo) -> PlayerResult<bool> {
+        if let SeekTo::Percents(percents) = to {
+            if !(0.00..1.00).contains(&percents) {
+                return Err(PlayerError::InvalidPercents);
+            }
         }
-        self.perform_and_get_bool(Command::SeekToPercents(percents))
-            .await
+        self.perform_and_get_bool(Command::Seek(to)).await
     }
 
     async fn perform_and_get_bool(&mut self, command: Command) -> PlayerResult<bool> {
@@ -291,28 +291,19 @@ fn handle_command(input: HandleInput) -> PlayerResult<Response> {
                 total: *input.current_source_duration,
             }))
         }
-        Command::SeekToPosition(pos) => Response::BoolResult(if input.primary_sink.empty() {
+        Command::Seek(to) => Response::BoolResult(if input.primary_sink.empty() {
             false
         } else {
+            let pos = match to {
+                SeekTo::Percents(percents) => input
+                    .current_source_duration
+                    .ok_or(PlayerError::UnknownTotalDuration)?
+                    .mul_f64(percents),
+                SeekTo::Position(duration) => duration,
+            };
             input
                 .primary_sink
                 .try_seek(pos)
-                .map_err(PlayerError::SeekFailed)?;
-            true
-        }),
-        Command::SeekToPercents(percents) => Response::BoolResult(if input.primary_sink.empty() {
-            false
-        } else {
-            let total_duration = input
-                .current_source_duration
-                .ok_or(PlayerError::UnknownTotalDuration)?;
-            input
-                .primary_sink
-                .try_seek(if percents == 0. {
-                    Duration::ZERO
-                } else {
-                    total_duration.div_f64(percents)
-                })
                 .map_err(PlayerError::SeekFailed)?;
             true
         }),

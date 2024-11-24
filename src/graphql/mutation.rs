@@ -1,9 +1,10 @@
-use std::ops::Deref;
+use std::{ops::Deref, time::Duration};
 
 use async_graphql::{Object, Result};
 
 use super::{GraphQLError, Scalar};
 use crate::{
+    audio::player::SeekTo,
     device::piano::{self, recordings::Recording as PianoRecording, Piano},
     prefs::PreferencesUpdate,
     App,
@@ -49,9 +50,18 @@ impl PianoMutation<'_> {
 
     /// Takes a number in range `[0.00, 1.00]`, where `0.00` is the beginning of an audio source
     /// and `1.00` is the end. Returns `false` if there is no playing (or paused) audio.
-    async fn seek_player(&self, percents: f64) -> Result<bool> {
+    async fn seek_player_to_percents(&self, percents: f64) -> Result<bool> {
         self.0
-            .seek_player(percents)
+            .seek_player(SeekTo::Percents(percents))
+            .await
+            .map_err(GraphQLError::extend)
+    }
+
+    /// Seek player to the given position represented in milliseconds.
+    /// Returns `false` if there is no playing (or paused) audio.
+    async fn seek_player_to_position(&self, pos_ms: u64) -> Result<bool> {
+        self.0
+            .seek_player(SeekTo::Position(Duration::from_millis(pos_ms)))
             .await
             .map_err(GraphQLError::extend)
     }
