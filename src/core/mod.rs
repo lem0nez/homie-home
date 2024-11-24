@@ -13,7 +13,7 @@ use std::{
 
 use async_stream::stream;
 use chrono::{DateTime, Datelike, Days, TimeDelta, TimeZone, Utc};
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use log::{error, info};
 use tokio::{
     select,
@@ -61,6 +61,16 @@ impl<T: Clone> Broadcaster<T> {
                 }
             }
         }
+    }
+}
+
+impl<T: Clone + PartialEq> Broadcaster<T> {
+    /// Wait until **at least one** of the given values will be received or shutdown triggered.
+    pub async fn wait_for(&self, any_of: &[T], shutdown_notify: ShutdownNotify) {
+        self.recv_continuously(shutdown_notify)
+            .await
+            .any(|recv_val| async move { any_of.contains(&recv_val) })
+            .await;
     }
 }
 

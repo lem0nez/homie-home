@@ -208,7 +208,7 @@ pub enum ReadRecordingError {
     InvalidFileName,
 }
 
-#[derive(SimpleObject)]
+#[derive(Clone, SimpleObject)]
 #[graphql(complex, name = "PianoRecording")]
 pub struct Recording {
     #[graphql(skip)]

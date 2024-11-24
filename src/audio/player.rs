@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use cpal::{Device, Sample, SupportedStreamConfig};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rodio::{source::SeekError, OutputStream, OutputStreamHandle, PlayError, Sink, StreamError};
 use tokio::{sync::mpsc, task};
 
@@ -231,6 +231,11 @@ impl Player {
     }
 
     async fn perform(&mut self, command: Command) -> PlayerResult<Response> {
+        if self.result_rx.try_recv().is_ok() {
+            // May happen when this method canceled while it was
+            // waiting for result just after it sent a command.
+            warn!("Unconsumed command result dropped");
+        }
         self.command_tx
             .send(command)
             .await

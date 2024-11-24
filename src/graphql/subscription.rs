@@ -39,15 +39,16 @@ impl SubscriptionRoot {
             .map_err(GraphQLError::extend)
     }
 
-    /// Respond every `checkIntervalMs` about the current playback status.
+    /// Takes maximum interval between checks of the current playback position when
+    /// player is playing. Otherwise it will update depending on received events.
     async fn piano_playback_status(
         &self,
         // 32-bit will be enough.
-        #[graphql(default = 500)] check_interval_ms: u32,
+        #[graphql(default = 500)] live_pos_check_interval_ms: u32,
     ) -> impl Stream<Item = Result<PianoPlaybackStatus>> {
         self.piano
             .clone()
-            .playback_status_update(Duration::from_millis(check_interval_ms as u64))
+            .playback_status_update(Duration::from_millis(live_pos_check_interval_ms as u64))
             .await
             .map_err(GraphQLError::extend)
     }
