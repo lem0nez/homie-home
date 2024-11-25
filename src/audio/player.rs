@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use cpal::{Device, Sample, SupportedStreamConfig};
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use rodio::{source::SeekError, OutputStream, OutputStreamHandle, PlayError, Sink, StreamError};
 use tokio::{sync::mpsc, task};
 
@@ -151,7 +151,6 @@ impl Player {
 
             let mut current_source_duration = None;
             while let Some(command) = command_rx.blocking_recv() {
-                let command_str = command.to_string();
                 match handle_command(HandleInput {
                     command,
                     stream_handle: &stream_handle,
@@ -163,7 +162,6 @@ impl Player {
                     }
                     Err(e) => send_error(e),
                 }
-                debug!("Command {command_str} handled");
             }
             info!("Playback thread finished");
         });

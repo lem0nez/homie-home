@@ -131,9 +131,10 @@ pub enum PianoEvent {
     /// Indicates that player and recorder became unavailable.
     AudioReleased,
 
-    /// Triggered on **manual** play or resume.
+    /// Triggered on play or resume.
     PlayerPlay,
     PlayerPause,
+    PlayerSeek,
 
     RecordStart,
     NewRecordingSaved,
@@ -207,7 +208,8 @@ impl Piano {
                     // These events don't affect the piano status.
                     PianoEvent::OldRecordingsRemoved
                     | PianoEvent::PlayerPlay
-                    | PianoEvent::PlayerPause => {}
+                    | PianoEvent::PlayerPause
+                    | PianoEvent::PlayerSeek => {}
                     _ => yield self.status().await,
                 }
             }
@@ -227,9 +229,7 @@ impl Piano {
             loop {
                 let player_result = self
                     .call_player(|player| {
-                        async {
-                            Ok((player.is_playing().await?, player.position().await?))
-                        }.boxed()
+                        async { Ok((player.is_playing().await?, player.position().await?)) }.boxed()
                     })
                     .await;
                 let last_played_recording = self
@@ -258,22 +258,21 @@ impl Piano {
                     .as_ref()
                     .ok()
                     .map(|status| {
-                        let events = if status.is_playing {
-                            vec![
-                                PianoEvent::PianoRemoved,
-                                PianoEvent::AudioReleased,
-                                PianoEvent::PlayerPause,
-                            ]
+                        let mut player_events = vec![
+                            PianoEvent::PianoRemoved,
+                            PianoEvent::AudioReleased,
+                            PianoEvent::PlayerSeek,
+                        ];
+                        let events_to_wait = if status.is_playing {
+                            player_events.push(PianoEvent::PlayerPause);
+                            player_events
                         } else if status.position.is_some() {
-                            vec![
-                                PianoEvent::PianoRemoved,
-                                PianoEvent::AudioReleased,
-                                PianoEvent::PlayerPlay,
-                            ]
+                            player_events.push(PianoEvent::PlayerPlay);
+                            player_events
                         } else {
                             vec![PianoEvent::PlayerPlay]
                         };
-                        (status.is_playing, events)
+                        (status.is_playing, events_to_wait)
                     })
                     .unwrap_or((true, vec![]));
 
@@ -433,6 +432,11 @@ impl Piano {
     pub async fn seek_player(&self, to: SeekTo) -> AudioResult<bool, PlayerError> {
         self.call_player(|player| async move { player.seek(to).await }.boxed())
             .await
+            .inspect(|&success| {
+                if success {
+                    self.event_broadcaster.send(PianoEvent::PlayerSeek);
+                };
+            })
     }
 
     pub async fn resume_player(&self) -> AudioResult<bool, PlayerError> {
