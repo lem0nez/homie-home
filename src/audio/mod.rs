@@ -7,12 +7,13 @@ use std::{
     io::{self, BufReader, Cursor, Read, Seek, Write},
     path::Path,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use claxon::FlacReader;
 use cpal::SupportedStreamConfig;
 use hound::{WavSpec, WavWriter};
+use log::debug;
 use rodio::{decoder::DecoderError, source, Decoder, Sink, Source};
 use strum::IntoEnumIterator;
 
@@ -95,7 +96,15 @@ impl AudioSource {
         let flac_reader =
             BufReader::new(File::open(flac_file).map_err(AudioSourceError::OpenFile)?);
         let mut wav_writer = Cursor::new(Vec::new());
+
+        let decode_start = Instant::now();
         flac_to_wav(flac_reader, &mut wav_writer).map_err(AudioSourceError::DecodeFlac)?;
+        debug!(
+            "FLAC file {} decoded in {} ms",
+            flac_file.to_string_lossy(),
+            decode_start.elapsed().as_millis()
+        );
+
         wav_writer.set_position(0);
         Decoder::new_wav(wav_writer)
             .map(|decoder| Self::UnbufferedMemory(Box::new(decoder)))
