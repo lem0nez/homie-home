@@ -14,7 +14,7 @@ use crate::{
         self,
         player::{PlaybackPosition, PlaybackProperties, Player, PlayerError, SeekTo},
         recorder::{RecordError, RecordParams, Recorder},
-        AudioObject, AudioSourceError, AudioSourceProperties, SoundLibrary,
+        AudioObject, AudioSource, AudioSourceError, AudioSourceProperties, SoundLibrary,
     },
     bluetooth::A2DPSourceHandler,
     config::{self, Config},
@@ -399,14 +399,16 @@ impl Piano {
         preserve_result
     }
 
+    /// Executing this method can take a long time as it _decodes_ entire recording.
     pub async fn play_recording(&self, id: i64) -> Result<(), PlayRecordingError> {
         let recording = self
             .recording_storage
             .get(id)
             .await
             .map_err(PlayRecordingError::GetRecording)?;
-        let source = recording
-            .audio_source()
+        // User should be able to seek:
+        // `rodio` doesn't support it for FLAC and for buffered decoders.
+        let source = AudioSource::flac_decoded_unbuffered(&recording.flac_path)
             .map_err(PlayRecordingError::MakeAudioSource)?;
         let props = PlaybackProperties {
             source_props: AudioSourceProperties {

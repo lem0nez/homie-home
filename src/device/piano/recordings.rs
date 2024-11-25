@@ -13,7 +13,7 @@ use tokio::{fs, io};
 
 use super::PianoEvent;
 use crate::{
-    audio::{recorder::RECORDING_EXTENSION, AudioSource, AudioSourceError},
+    audio::recorder::RECORDING_EXTENSION,
     core::{human_date_ago, human_duration, Broadcaster, HumanDateParams, SortOrder},
     graphql::GraphQLError,
 };
@@ -245,10 +245,6 @@ impl Recording {
                 stream_info.total_samples * 1000 / stream_info.sample_rate as u64,
             ),
         })
-    }
-
-    pub(super) fn audio_source(&self) -> Result<AudioSource, AudioSourceError> {
-        AudioSource::new(&self.flac_path)
     }
 
     fn id(&self) -> i64 {

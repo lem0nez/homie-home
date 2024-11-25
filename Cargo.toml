@@ -50,9 +50,13 @@ async-graphql = { version = "7.0.7", features = [
 ], default-features = false }
 async-graphql-actix-web = "7.0.7"
 
+# FLAC decoding.
+claxon = "0.4.3"
 cpal = "0.15.3"
 # Used to store records.
 flac-bound = "0.3.0"
+# Used to create WAV.
+hound = "3.5.1"
 # Embed metadata into the records.
 metaflac = "0.2.7"
 # See a commit to know why the fork is required: https://github.com/lem0nez/rodio/commit/f6f861e.

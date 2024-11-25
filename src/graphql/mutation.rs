@@ -39,6 +39,7 @@ struct PianoMutation<'a>(&'a Piano);
 
 #[Object]
 impl PianoMutation<'_> {
+    /// Executing this mutation can take a long time as it _decodes_ entire recording.
     /// If there is already playing recording, it will be stopped.
     async fn play_recording(&self, id: Scalar<i64>) -> Result<i64> {
         self.0
