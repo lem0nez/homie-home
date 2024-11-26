@@ -256,20 +256,24 @@ fn handle_command(input: HandleInput) -> PlayerResult<Response> {
     let response = match input.command {
         Command::Play(source, props) => {
             let duration = source.duration();
-            let play = |sink: &Sink| {
+            let play = |sink: &Sink, seek_to_zero: bool| {
                 sink.set_volume(props.volume);
                 source.append_to(sink, props.source_props);
+                if seek_to_zero {
+                    // Avoid a bug when the sink reports position of the previous source.
+                    let _ = sink.try_seek(Duration::ZERO);
+                }
                 sink.play();
             };
             if props.secondary {
                 let secondary_sink =
                     Sink::try_new(input.stream_handle).map_err(PlayerError::CreateSinkError)?;
-                play(&secondary_sink);
+                play(&secondary_sink, false);
                 secondary_sink.detach();
             } else {
                 // Empty the queue.
                 input.primary_sink.stop();
-                play(input.primary_sink);
+                play(input.primary_sink, true);
                 *input.current_source_duration = duration;
             }
             Response::PlayStarted
