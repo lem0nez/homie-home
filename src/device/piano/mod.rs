@@ -258,21 +258,20 @@ impl Piano {
                     .as_ref()
                     .ok()
                     .map(|status| {
-                        let mut player_events = vec![
+                        if status.position.is_none() {
+                            return (false, vec![PianoEvent::PlayerPlay]);
+                        }
+
+                        let mut events = vec![
                             PianoEvent::PianoRemoved,
                             PianoEvent::AudioReleased,
+                            PianoEvent::PlayerPlay,
                             PianoEvent::PlayerSeek,
                         ];
-                        let events_to_wait = if status.is_playing {
-                            player_events.push(PianoEvent::PlayerPause);
-                            player_events
-                        } else if status.position.is_some() {
-                            player_events.push(PianoEvent::PlayerPlay);
-                            player_events
-                        } else {
-                            vec![PianoEvent::PlayerPlay]
-                        };
-                        (status.is_playing, events_to_wait)
+                        if status.is_playing {
+                            events.push(PianoEvent::PlayerPause);
+                        }
+                        (status.is_playing, events)
                     })
                     .unwrap_or((true, vec![]));
 
