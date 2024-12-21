@@ -59,7 +59,8 @@ flac-bound = "0.3.0"
 hound = "3.5.1"
 # Embed metadata into the records.
 metaflac = "0.2.7"
-# See a commit to know why the fork is required: https://github.com/lem0nez/rodio/commit/f6f861e.
+# See changes to know why the fork is required:
+# https://github.com/lem0nez/rodio/compare/27f2b42..v0.19.0-patch
 rodio = { git = "https://github.com/lem0nez/rodio.git", branch = "v0.19.0-patch", features = [
     "flac",
     "wav",

@@ -2330,7 +2330,7 @@ checksum = "7a66a03ae7c801facd77a29370b4faec201768915ac14a721ba36f20bc9c209b"
 [[package]]
 name = "rodio"
 version = "0.19.0"
-source = "git+https://github.com/lem0nez/rodio.git?branch=v0.19.0-patch#f6f861e5b8cad76859caba15318bc0b1f6c3148c"
+source = "git+https://github.com/lem0nez/rodio.git?branch=v0.19.0-patch#cb858bc7296ee31bbd138ffc3c5aabdc969dd450"
 dependencies = [
  "claxon",
  "cpal",
