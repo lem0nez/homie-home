@@ -18,10 +18,14 @@ use cpal::{
     SupportedStreamConfig, SupportedStreamConfigsError,
 };
 use flac_bound::{FlacEncoder, FlacEncoderConfig, FlacEncoderState};
-use futures::executor;
+use futures::{executor, future::BoxFuture};
 use log::{error, info};
 use metaflac::block::PictureType;
-use tokio::{sync::mpsc as tokio_mpsc, task};
+use tokio::{
+    select,
+    sync::{mpsc as tokio_mpsc, watch},
+    task,
+};
 
 use crate::{audio, config, core::ShutdownNotify};
 
@@ -42,6 +46,14 @@ pub struct RecordParams {
     /// Recording's front cover image in the JPEG format.
     pub front_cover_jpeg: Option<Vec<u8>>,
 }
+
+pub struct TimepointHandler {
+    /// How long to wait (since the recorder started) before calling the callback.
+    pub at: Duration,
+    pub callback: TimepointCallback,
+}
+
+type TimepointCallback = Box<dyn FnOnce() -> BoxFuture<'static, ()> + Send>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RecordError {
@@ -155,7 +167,11 @@ impl Recorder {
         }
     }
 
-    pub async fn start(&mut self, params: RecordParams) -> Result<(), RecordError> {
+    pub async fn start(
+        &mut self,
+        params: RecordParams,
+        timepoint_handler: Option<TimepointHandler>,
+    ) -> Result<(), RecordError> {
         if self.record_handlers.is_some() {
             return Err(RecordError::AlreadyRecording);
         }
@@ -173,6 +189,13 @@ impl Recorder {
         let shutdown_notify = self.shutdown_notify.clone();
         let (mut handlers, status_tx) = RecordHandlers::new();
         let stop_trigger = Arc::clone(&handlers.stop_trigger);
+
+        // Recording starts when a change notification received.
+        // If sender is dropped, it means that recorder finished (successfully or not).
+        let (timepoint_handler_tx, timepoint_handler_rx) = watch::channel(());
+        if let Some(timepoint_handler) = timepoint_handler {
+            spawn_timepoint_handler(timepoint_handler, timepoint_handler_rx);
+        }
 
         task::spawn_blocking(move || {
             let send_error = |error, before_processing| {
@@ -256,6 +279,8 @@ impl Recorder {
             if let Err(e) = stream.play() {
                 return send_error(RecordError::CaptureFailed(e), true);
             }
+            // Notify timepoint handler that recording is started.
+            timepoint_handler_tx.send_replace(());
             let _ = status_tx.blocking_send(StatusMessage::Initialized);
             info!("Recording started to {}", params.out_flac.to_string_lossy());
 
@@ -313,6 +338,20 @@ impl Drop for Recorder {
             let _ = executor::block_on(handlers.status_rx.recv());
         }
     }
+}
+
+fn spawn_timepoint_handler(handler: TimepointHandler, mut proceed_rx: watch::Receiver<()>) {
+    tokio::spawn(async move {
+        // Wait until the recorder starts.
+        if proceed_rx.changed().await.is_err() {
+            // Processing thread closed.
+            return;
+        }
+        select! {
+            _ = tokio::time::sleep(handler.at) => (handler.callback)().await,
+            _ = proceed_rx.changed() => {}
+        }
+    });
 }
 
 type SamplesResult = Result<Vec<FLACSampleMax>, StreamError>;

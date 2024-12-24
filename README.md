@@ -85,6 +85,9 @@ bluetooth:
 # Raspberry Pi via Bluetooth, for example, to stream the audio. And if the same device will do these
 # two operations simultaneously, stability of the audio streaming will be bad. So, we temporary
 # disconnect from the Wi-Fi access point while the device connected to us via Bluetooth.
+#
+# Note that it's not applicable if you are separated Wi-Fi and Bluetooth by using external adapter
+# for one of them.
 hotspot:
   # [REQUIRED] NetworkManager connection. Can be one of: ID (name), UUID or path.
   connection: AP
@@ -101,6 +104,9 @@ piano:
   # Maximum number of recordings to store.
   # If limit is reached, starting a new recording will delete the oldest one.
   max_recordings: 20
+  # Maximum duration of a recording.
+  # Recorder will be automatically stopped and recording saved when this limit is reached.
+  max_recording_duration_secs: 3600
   # Parameters related to the audio recording. Make sure they are supported by your device.
   recorder:
     # Number of channels (default is stereo).

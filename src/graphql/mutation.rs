@@ -77,6 +77,8 @@ impl PianoMutation<'_> {
         self.0.pause_player().await.map_err(GraphQLError::extend)
     }
 
+    /// Start the recorder. Piano event `RECORDING_LENGTH_LIMIT_REACHED`
+    /// will be triggered if recording takes too long.
     async fn record(&self) -> Result<bool> {
         self.0
             .record()
@@ -89,7 +91,7 @@ impl PianoMutation<'_> {
     async fn stop_recorder(&self) -> Result<PianoRecording> {
         self.0
             .stop_recorder(piano::StopRecorderParams {
-                triggered_by_user: true,
+                play_feedback: true,
             })
             .await
             .map_err(GraphQLError::extend)

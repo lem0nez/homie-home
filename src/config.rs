@@ -98,6 +98,9 @@ pub struct Piano {
     /// If limit is reached, starting a new recording will delete the oldest one.
     #[validate(minimum = 1)]
     pub max_recordings: u16,
+    /// Recorder will be automatically stopped and a recording saved when this limit is reached.
+    #[validate(minimum = 1)]
+    pub max_recording_duration_secs: u32,
     #[validate]
     pub recorder: Recorder,
 }
@@ -113,6 +116,7 @@ impl Default for Piano {
             // If such conversions are not required, you can use the `hw` plugin.
             alsa_plugin: "plughw".to_string(),
             max_recordings: 20,
+            max_recording_duration_secs: 3600,
             recorder: Recorder::default(),
         }
     }

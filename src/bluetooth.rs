@@ -38,12 +38,9 @@ where
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum DeviceAccessError<D: DeviceDescription> {
-    #[error("{} is not connected", D::name())]
+    #[error("{} isn't connected", D::name())]
     NotConnected(PhantomData<D>),
-    #[error(
-        "{} is not found and the discovery attempt will be performed again",
-        D::name()
-    )]
+    #[error("{} not found. Discovery attempt will be performed again", D::name())]
     NotFound(PhantomData<D>),
     #[error("Discovering {}", D::name())]
     Discovering(PhantomData<D>),
@@ -51,7 +48,7 @@ pub enum DeviceAccessError<D: DeviceDescription> {
     Connecting(PhantomData<D>),
     #[error("{} is in disconnecting state", D::name())]
     Disconnecting(PhantomData<D>),
-    #[error("{} is unhealthy and will be reconnected", D::name())]
+    #[error("{} is unhealthy. It will be reconnected", D::name())]
     Unhealthy(PhantomData<D>),
 }
 

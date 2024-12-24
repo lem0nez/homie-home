@@ -13,7 +13,7 @@ use crate::{
     audio::{
         self,
         player::{PlaybackPosition, PlaybackProperties, Player, PlayerError, SeekTo},
-        recorder::{RecordError, RecordParams, Recorder},
+        recorder::{self, RecordError, RecordParams, Recorder},
         AudioObject, AudioSource, AudioSourceError, AudioSourceProperties, SoundLibrary,
     },
     bluetooth::A2DPSourceHandler,
@@ -63,7 +63,8 @@ impl<E: Display> GraphQLError for AudioError<E> {}
 type AudioResult<T, E> = Result<T, AudioError<E>>;
 
 pub struct StopRecorderParams {
-    pub triggered_by_user: bool,
+    /// Whether to play a sound or log the result.
+    pub play_feedback: bool,
 }
 
 #[derive(Debug, strum::AsRefStr, thiserror::Error)]
@@ -137,6 +138,9 @@ pub enum PianoEvent {
     PlayerSeek,
 
     RecordStart,
+    /// Triggered before stopping the recorder automatically
+    /// as the recording duration limit is reached.
+    RecordingLengthLimitReached,
     NewRecordingSaved,
     OldRecordingsRemoved,
 }
@@ -206,7 +210,8 @@ impl Piano {
             while let Some(event) = event_stream.next().await {
                 match event {
                     // These events don't affect the piano status.
-                    PianoEvent::OldRecordingsRemoved
+                    PianoEvent::RecordingLengthLimitReached
+                    | PianoEvent::OldRecordingsRemoved
                     | PianoEvent::PlayerPlay
                     | PianoEvent::PlayerPause
                     | PianoEvent::PlayerSeek => {}
@@ -325,8 +330,11 @@ impl Piano {
         };
         drop(prefs_lock);
 
+        let timepoint_handler = self.get_recorder_timepoint_handler();
         let result = self
-            .call_recorder(|recorder| async move { recorder.start(params).await }.boxed())
+            .call_recorder(|recorder| {
+                async move { recorder.start(params, Some(timepoint_handler)).await }.boxed()
+            })
             .await;
         if let Err(e) = result {
             if fs::try_exists(&out_path).await.unwrap_or(true) {
@@ -342,6 +350,29 @@ impl Piano {
             self.event_broadcaster.send(PianoEvent::RecordStart);
             self.play_sound(Sound::RecordStart).await;
             Ok(())
+        }
+    }
+
+    /// Used to stop a running recorder when the recording duration limit is reached.
+    fn get_recorder_timepoint_handler(&self) -> recorder::TimepointHandler {
+        let piano = self.clone();
+        let callback = async move {
+            warn!("Recording length limit reached. Recorder will be stopped");
+            piano
+                .event_broadcaster
+                .send(PianoEvent::RecordingLengthLimitReached);
+            let result = piano
+                .stop_recorder(StopRecorderParams {
+                    play_feedback: true,
+                })
+                .await;
+            if let Err(e) = result {
+                error!("Failed to stop the recorder properly: {e}");
+            }
+        };
+        recorder::TimepointHandler {
+            at: Duration::from_secs(self.config.max_recording_duration_secs as u64),
+            callback: Box::new(|| callback.boxed()),
         }
     }
 
@@ -381,7 +412,7 @@ impl Piano {
         if preserve_result.is_ok() {
             self.event_broadcaster.send(PianoEvent::NewRecordingSaved);
         }
-        if params.triggered_by_user {
+        if params.play_feedback {
             self.play_sound(if recorder_succeed && preserve_result.is_ok() {
                 Sound::RecordStop
             } else {
@@ -550,7 +581,7 @@ impl Piano {
                 drop(inner);
                 let _ = self
                     .stop_recorder(StopRecorderParams {
-                        triggered_by_user: false,
+                        play_feedback: false,
                     })
                     .await;
                 return Some(HandledPianoEvent::Remove);
@@ -603,7 +634,7 @@ impl Piano {
                 drop(inner_lock);
                 let _ = self
                     .stop_recorder(StopRecorderParams {
-                        triggered_by_user: false,
+                        play_feedback: false,
                     })
                     .await;
             }
@@ -770,7 +801,7 @@ impl Drop for Piano {
         // Preserve recording (if recorder is active) on latest instance drop (at server shutdown).
         if Arc::strong_count(&self.inner) == 1 {
             let _ = executor::block_on(self.stop_recorder(StopRecorderParams {
-                triggered_by_user: false,
+                play_feedback: false,
             }));
         }
     }
