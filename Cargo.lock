@@ -1403,6 +1403,7 @@ dependencies = [
  "log",
  "metaflac",
  "mime",
+ "neli-wifi",
  "rodio",
  "serde",
  "serde_valid",
@@ -1928,6 +1929,41 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c196769dd60fd4f363e11d948139556a344e79d451aeb2fa2fd040738ef7691"
 dependencies = [
  "jni-sys",
+]
+
+[[package]]
+name = "neli"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1100229e06604150b3becd61a4965d5c70f3be1759544ea7274166f4be41ef43"
+dependencies = [
+ "byteorder",
+ "libc",
+ "log",
+ "neli-proc-macros",
+ "tokio",
+]
+
+[[package]]
+name = "neli-proc-macros"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c168194d373b1e134786274020dae7fc5513d565ea2ebb9bc9ff17ffb69106d4"
+dependencies = [
+ "either",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "neli-wifi"
+version = "0.6.0"
+source = "git+https://github.com/lem0nez/neli-wifi.git?branch=v0.6.0-inactive-time#ac660c6ccd63129bc1ad205fcee3bde1c2e17e7c"
+dependencies = [
+ "neli",
+ "neli-proc-macros",
 ]
 
 [[package]]

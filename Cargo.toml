@@ -61,16 +61,22 @@ hound = "3.5.1"
 metaflac = "0.2.7"
 # See changes to know why the fork is required:
 # https://github.com/lem0nez/rodio/compare/27f2b42..v0.19.0-patch
-rodio = { git = "https://github.com/lem0nez/rodio.git", branch = "v0.19.0-patch", features = [
+rodio = { git = "https://github.com/lem0nez/rodio.git", features = [
     "flac",
     "wav",
-], default-features = false }
+], default-features = false, branch = "v0.19.0-patch" }
 
 bluez-async = "0.7.2"
+# See changes here:
+# https://github.com/lem0nez/neli-wifi/compare/d45e59d..v0.6.0-inactive-time
+neli-wifi = { git = "https://github.com/lem0nez/neli-wifi.git", features = [
+    "async",
+], branch = "v0.6.0-inactive-time" }
+# We are using Bluetooth service and characteristic UUIDs.
+uuid = "1.10.0"
+
 chrono = { version = "0.4.38", default-features = false }
 figment = { version = "0.10.19", features = ["env", "yaml"] }
 mime = "0.3.17"
 tokio-udev = "0.9.1"
-# We are using Bluetooth service and characteristic UUIDs.
-uuid = "1.10.0"
 zbus = { version = "4.4.0", features = ["tokio"], default-features = false }
