@@ -77,6 +77,8 @@ yeelight = { version = "0.4.1", features = [
 zbus = { version = "4.4.0", features = ["tokio"], default-features = false }
 
 chrono = { version = "0.4.38", default-features = false }
+# MAC address of Bluetooth and Wi-Fi devices.
+macaddr = "1.0.1"
 mime = "0.3.17"
 # We are using Bluetooth service and characteristic UUIDs.
 uuid = "1.10.0"

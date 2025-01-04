@@ -6,6 +6,7 @@ use figment::{
     Figment,
 };
 use log::LevelFilter;
+use macaddr::MacAddr6;
 use serde::Deserialize;
 use serde_valid::Validate;
 
@@ -59,10 +60,8 @@ pub struct Bluetooth {
     pub discovery_seconds: u64,
     /// If set to [None], all available Bluetooth adapters will be used for discovering.
     pub adapter_name: Option<String>,
-    // We can't use [bluez_async::MacAddress] directly
-    // because it doesn't have [Deserialize] and [Default] implementations.
-    #[validate(custom = validator::bluetooth_mac)]
-    pub lounge_temp_mac_address: String,
+    #[serde(deserialize_with = "deserialize::from_str")]
+    pub lounge_temp_mac_address: MacAddr6,
 }
 
 impl Default for Bluetooth {
@@ -70,7 +69,7 @@ impl Default for Bluetooth {
         Self {
             discovery_seconds: 5,
             adapter_name: None,
-            lounge_temp_mac_address: String::default(),
+            lounge_temp_mac_address: MacAddr6::nil(),
         }
     }
 }
@@ -79,8 +78,8 @@ impl Default for Bluetooth {
 pub struct MasterAP {
     /// NetworkManager connection. Can be one of: ID (name), UUID or path.
     pub connection: String,
-    #[validate(custom = validator::bluetooth_mac)]
-    pub bluetooth_mac_address: String,
+    #[serde(deserialize_with = "deserialize::from_str")]
+    pub bluetooth_mac_address: MacAddr6,
 }
 
 #[derive(Clone, Deserialize, Validate)]
@@ -199,24 +198,20 @@ pub mod backoff {
     }
 }
 
-mod validator {
-    use serde_valid::validation::Error;
-    use std::str::FromStr;
-
-    pub fn bluetooth_mac(val: &str) -> Result<(), Error> {
-        if val.is_empty() {
-            return Err(Error::Custom(
-                "Bluetooth MAC address must be set".to_string(),
-            ));
-        }
-        bluez_async::MacAddress::from_str(val)
-            .map(|_| ())
-            .map_err(|e| Error::Custom(e.to_string()))
-    }
-}
-
 mod deserialize {
-    use serde::{Deserialize, Deserializer};
+    use std::{fmt::Display, str::FromStr};
+
+    use serde::{de, Deserialize, Deserializer};
+
+    pub fn from_str<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: FromStr,
+        <T as FromStr>::Err: Display,
+    {
+        String::deserialize(deserializer)
+            .and_then(|s| FromStr::from_str(&s).map_err(de::Error::custom))
+    }
 
     pub fn sample_rate<'de, D>(deserializer: D) -> Result<cpal::SampleRate, D::Error>
     where

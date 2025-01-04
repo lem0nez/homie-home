@@ -104,13 +104,8 @@ impl App {
         }
 
         let master_ap = config.master_ap.clone().map(MasterAP::from);
-        let lounge_temp_monitor = bluetooth::new_device(
-            config
-                .bluetooth
-                .lounge_temp_mac_address
-                .parse()
-                .expect("server configuration is not validated"),
-        );
+        let lounge_temp_monitor =
+            bluetooth::new_device(config.bluetooth.lounge_temp_mac_address.into_array().into());
 
         Ok(Self {
             config,

@@ -24,12 +24,7 @@ impl From<config::MasterAP> for MasterAP {
 impl MasterAP {
     /// Check if a Bluetooth device is the master device.
     pub fn is_master(&self, bluetooth_device: &bluez_async::DeviceInfo) -> bool {
-        bluetooth_device.mac_address
-            == self
-                .config
-                .bluetooth_mac_address
-                .parse()
-                .expect("master AP configuration is not validated")
+        bluetooth_device.mac_address == self.config.bluetooth_mac_address.into_array().into()
     }
 
     pub async fn connect_to_wifi(&self) {
