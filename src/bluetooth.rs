@@ -539,14 +539,14 @@ async fn handle_event(event: BluetoothEvent, session: &BluetoothSession, app: &A
                         app.piano.update_audio_io().await;
                     }
 
-                    if let Some(hotspot) = &app.hotspot {
-                        if app.prefs.read().await.hotspot_handling_enabled
-                            && hotspot.is_hotspot(&device)
+                    if let Some(master_ap) = &app.master_ap {
+                        if app.prefs.read().await.master_ap_handling_enabled
+                            && master_ap.is_master(&device)
                         {
                             if connected {
-                                hotspot.disconnect_from_wifi().await
+                                master_ap.disconnect_from_wifi().await
                             } else {
-                                hotspot.connect_to_wifi().await
+                                master_ap.connect_to_wifi().await
                             };
                         }
                     }

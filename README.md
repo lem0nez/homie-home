@@ -78,20 +78,20 @@ bluetooth:
   # [REQUIRED] MAC address of Xiaomi Mi Temperature and Humidity Monitor 2 (LYWSD03MMC).
   lounge_temp_mac_address: FF:00:FF:00:FF:00
 
-# [OPTIONAL] Hotspot information.
+# [OPTIONAL] Master access point information.
 # If this section is not null, all child parameters must be defined.
 #
-# Hotspot is a device that shares the internet using Wi-Fi. But the same device can connect to
-# Raspberry Pi via Bluetooth, for example, to stream the audio. And if the same device will do these
-# two operations simultaneously, stability of the audio streaming will be bad. So, we temporary
+# Master AP is a device that shares the internet using Wi-Fi. This device can connect to Raspberry
+# Pi via Bluetooth, for example, to stream the audio. And if the device will do these two
+# operations simultaneously, stability of the audio streaming will be bad. So, we temporary
 # disconnect from the Wi-Fi access point while the device connected to us via Bluetooth.
 #
-# Note that it's not applicable if you are separated Wi-Fi and Bluetooth by using external adapter
-# for one of them.
-hotspot:
+# Note that the described problem is not applicable if you are separated Wi-Fi and Bluetooth by
+# using external adapter for one of them.
+master_ap:
   # [REQUIRED] NetworkManager connection. Can be one of: ID (name), UUID or path.
   connection: AP
-  # [REQUIRED] Bluetooth MAC address of the hotpost device.
+  # [REQUIRED] Bluetooth MAC address of the master AP device.
   bluetooth_mac_address: FF:00:FF:00:FF:00
 
 # Piano parameters.

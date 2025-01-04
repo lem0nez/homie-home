@@ -1,5 +1,4 @@
 pub mod description;
-pub mod hotspot;
 pub mod mi_temp_monitor;
 pub mod piano;
 

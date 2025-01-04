@@ -15,8 +15,8 @@ use crate::{graphql::GraphQLError, App, GlobalEvent, SharedRwLock};
 pub struct Preferences {
     /// Whether to disconnect from Wi-Fi access point if connected Bluetooth device is the same.
     /// It prevents audio freezing while hosting device plays it via Bluetooth.
-    /// Hotspot configuration must be provided at server initialization to make it work.
-    pub hotspot_handling_enabled: bool,
+    /// Master AP configuration must be provided at server initialization to make it work.
+    pub master_ap_handling_enabled: bool,
     /// Piano-related settings.
     pub piano: PianoPreferences,
 }
@@ -55,7 +55,7 @@ impl GraphQLError for PreferencesUpdateError {}
 
 #[derive(InputObject)]
 pub struct PreferencesUpdate {
-    hotspot_handling_enabled: Option<bool>,
+    master_ap_handling_enabled: Option<bool>,
     piano: Option<PianoPreferencesUpdate>,
 }
 
@@ -118,8 +118,8 @@ impl PreferencesStorage {
     ) -> Result<(), PreferencesUpdateError> {
         let mut prefs_lock = self.preferences.write().await;
 
-        if let Some(hotspot_handling_enabled) = update.hotspot_handling_enabled {
-            prefs_lock.hotspot_handling_enabled = hotspot_handling_enabled;
+        if let Some(master_ap_handling_enabled) = update.master_ap_handling_enabled {
+            prefs_lock.master_ap_handling_enabled = master_ap_handling_enabled;
         }
 
         if let Some(piano) = update.piano {

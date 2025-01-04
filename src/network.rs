@@ -5,21 +5,15 @@ use tokio::{process::Command, task::JoinHandle};
 
 use crate::{config, SharedMutex};
 
-#[derive(strum::Display)]
-enum NetworkManagerAction {
-    Up,
-    Down,
-}
-
 #[derive(Clone)]
-pub struct Hotspot {
-    config: config::Hotspot,
+pub struct MasterAP {
+    config: config::MasterAP,
     /// [JoinHandle] to the already running `nmcli` command.
     running_nmcli: SharedMutex<Option<JoinHandle<()>>>,
 }
 
-impl From<config::Hotspot> for Hotspot {
-    fn from(config: config::Hotspot) -> Self {
+impl From<config::MasterAP> for MasterAP {
+    fn from(config: config::MasterAP) -> Self {
         Self {
             config,
             running_nmcli: Arc::default(),
@@ -27,15 +21,15 @@ impl From<config::Hotspot> for Hotspot {
     }
 }
 
-impl Hotspot {
-    /// Check if a Bluetooth device is the hotspot device.
-    pub fn is_hotspot(&self, bluetooth_device: &bluez_async::DeviceInfo) -> bool {
+impl MasterAP {
+    /// Check if a Bluetooth device is the master device.
+    pub fn is_master(&self, bluetooth_device: &bluez_async::DeviceInfo) -> bool {
         bluetooth_device.mac_address
             == self
                 .config
                 .bluetooth_mac_address
                 .parse()
-                .expect("hotspot configuration is not validated")
+                .expect("master AP configuration is not validated")
     }
 
     pub async fn connect_to_wifi(&self) {
@@ -78,6 +72,12 @@ impl Hotspot {
             *running_nmcli = Some(spawn_nmcli(action, connection));
         });
     }
+}
+
+#[derive(strum::Display)]
+enum NetworkManagerAction {
+    Up,
+    Down,
 }
 
 // TODO: check the current connection state using neli-wifi before proceeding.

@@ -31,7 +31,8 @@ pub struct Config {
     #[validate]
     pub bluetooth: Bluetooth,
     /// Information about a hosting device to which the Raspberry Pi connects to.
-    pub hotspot: Option<Hotspot>,
+    /// You can skip it if you don't have such device.
+    pub master_ap: Option<MasterAP>,
     #[validate]
     pub piano: Piano,
 }
@@ -46,7 +47,7 @@ impl Default for Config {
             data_dir: Path::new(concat!("/var/lib/", env!("CARGO_PKG_NAME"))).into(),
             access_token: None,
             bluetooth: Bluetooth::default(),
-            hotspot: None,
+            master_ap: None,
             piano: Piano::default(),
         }
     }
@@ -75,7 +76,7 @@ impl Default for Bluetooth {
 }
 
 #[derive(Clone, Deserialize, Validate)]
-pub struct Hotspot {
+pub struct MasterAP {
     /// NetworkManager connection. Can be one of: ID (name), UUID or path.
     pub connection: String,
     #[validate(custom = validator::bluetooth_mac)]

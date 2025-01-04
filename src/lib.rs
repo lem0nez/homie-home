@@ -10,6 +10,7 @@ mod dbus;
 mod device;
 mod endpoint;
 mod files;
+mod network;
 mod prefs;
 
 use std::sync::Arc;
@@ -25,11 +26,11 @@ use core::{Broadcaster, ShutdownNotify};
 use dbus::DBus;
 use device::{
     description::LoungeTempMonitor,
-    hotspot::Hotspot,
     mi_temp_monitor::MiTempMonitor,
     piano::{self, Piano},
 };
 use files::{BaseDir, Data};
+use network::MasterAP;
 use prefs::PreferencesStorage;
 
 pub type SharedMutex<T> = Arc<Mutex<T>>;
@@ -54,8 +55,8 @@ pub struct App {
     pub bluetooth: Bluetooth,
     pub a2dp_source_handler: A2DPSourceHandler,
 
-    /// If hotspot configuration is not passed, it will be [None].
-    pub hotspot: Option<Hotspot>,
+    /// If master AP configuration is not passed, it will be [None].
+    pub master_ap: Option<MasterAP>,
     pub piano: Piano,
     pub lounge_temp_monitor: DeviceHolder<MiTempMonitor, LoungeTempMonitor>,
 }
@@ -102,7 +103,7 @@ impl App {
             piano.init(devpath, init_params).await;
         }
 
-        let hotspot = config.hotspot.clone().map(Hotspot::from);
+        let master_ap = config.master_ap.clone().map(MasterAP::from);
         let lounge_temp_monitor = bluetooth::new_device(
             config
                 .bluetooth
@@ -122,7 +123,7 @@ impl App {
             bluetooth,
             a2dp_source_handler,
 
-            hotspot,
+            master_ap,
             piano,
             lounge_temp_monitor,
         })
