@@ -13,11 +13,9 @@ lto = true
 strip = true
 
 [dependencies]
-# It's used to stream data through a REST endpoint.
 async-stream = "0.3.5"
 futures = "0.3.30"
-# Using tokio process instead of std to avoid zombie processes
-# when calling commands from Actix Web endpoints.
+# Using tokio process instead of std to avoid zombie processes.
 tokio = { version = "1.38.0", features = [
     "fs",
     "macros",
@@ -25,10 +23,10 @@ tokio = { version = "1.38.0", features = [
     "rt-multi-thread",
 ] }
 
+figment = { version = "0.10.19", features = ["env", "yaml"] }
 serde = "1.0.203"
 # Used for the user configuration validation.
 serde_valid = "0.24.0"
-# For reading / writing the user preferences.
 serde_yaml = "0.9.34"
 strum = { version = "0.26.3", features = ["derive"] }
 
@@ -72,11 +70,13 @@ bluez-async = "0.7.2"
 neli-wifi = { git = "https://github.com/lem0nez/neli-wifi.git", features = [
     "async",
 ], branch = "v0.6.0-inactive-time" }
-# We are using Bluetooth service and characteristic UUIDs.
-uuid = "1.10.0"
+tokio-udev = "0.9.1"
+yeelight = { version = "0.4.1", features = [
+    "from-str",
+], default-features = false }
+zbus = { version = "4.4.0", features = ["tokio"], default-features = false }
 
 chrono = { version = "0.4.38", default-features = false }
-figment = { version = "0.10.19", features = ["env", "yaml"] }
 mime = "0.3.17"
-tokio-udev = "0.9.1"
-zbus = { version = "4.4.0", features = ["tokio"], default-features = false }
+# We are using Bluetooth service and characteristic UUIDs.
+uuid = "1.10.0"
